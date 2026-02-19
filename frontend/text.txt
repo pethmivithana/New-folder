@@ -1,0 +1,10 @@
+Sending analysis request: Object
+[NEW] Explain Console errors by using Copilot in Edge: click
+         
+         to explain an error. 
+        Learn more
+        Don't show again
+ImpactAnalyzer.jsx:42 Analysis result received: {effort: {…}, schedule_risk: {…}, quality_risk: {…}, productivity: {…}, summary: {…}, …}
+installHook.js:1  No display object in result: {effort: {…}, schedule_risk: {…}, quality_risk: {…}, productivity: {…}, summary: {…}, …}
+overrideMethod @ installHook.js:1
+handleAnalyze @ ImpactAnalyzer.jsx:45
