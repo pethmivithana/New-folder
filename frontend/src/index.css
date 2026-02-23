@@ -20,3 +20,32 @@ body {
   width: 100%;
   height: 100vh;
 }
+
+/* ─── FORM FIELD DARK MODE FIX ───────────────────────────────────────────────
+   Without explicit bg-white on every input/select/textarea, browsers in dark
+   mode render form controls with a black background (Tailwind preflight sets
+   background: transparent, so the OS dark theme bleeds through).
+   This forces all form fields to always render as light/white regardless of
+   the OS or browser colour scheme setting.
+   ─────────────────────────────────────────────────────────────────────────── */
+input,
+textarea,
+select {
+  background-color: #ffffff;
+  color: #111827;
+  color-scheme: light;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+  opacity: 1;
+}
+
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  background-color: #ffffff;
+  color: #111827;
+  color-scheme: light;
+}

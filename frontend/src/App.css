@@ -1,9 +1,11 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+/* ─── NOTE ────────────────────────────────────────────────────────────────────
+   The #root block that was here previously:
+     #root { max-width: 1280px; margin: 0 auto; padding: 2rem; text-align: center; }
+   has been REMOVED. It conflicted with the #root in index.css which sets
+   width: 100% and height: 100vh for the full-screen app layout.
+   Keeping both caused the app content to be capped at 1280px and centred,
+   which broke the sidebar + main panel layout.
+   ─────────────────────────────────────────────────────────────────────────── */
 
 .logo {
   height: 6em;

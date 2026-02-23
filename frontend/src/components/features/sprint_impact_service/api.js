@@ -13,9 +13,9 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config);
-      
+
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(error.detail || 'An error occurred');
       }
 
@@ -28,171 +28,114 @@ class ApiClient {
     }
   }
 
-  // Spaces
+  // ── Spaces ──────────────────────────────────────────────────────────────────
   async createSpace(data) {
-    return this.request('/spaces/', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return this.request('/spaces/', { method: 'POST', body: JSON.stringify(data) });
   }
-
   async getSpaces() {
     return this.request('/spaces/');
   }
-
   async getSpace(id) {
     return this.request(`/spaces/${id}`);
   }
-
   async updateSpace(id, data) {
-    return this.request(`/spaces/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    return this.request(`/spaces/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
-
   async deleteSpace(id) {
-    return this.request(`/spaces/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/spaces/${id}`, { method: 'DELETE' });
   }
 
-  // Sprints
+  // ── Sprints ─────────────────────────────────────────────────────────────────
   async createSprint(data) {
-    return this.request('/sprints/', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return this.request('/sprints/', { method: 'POST', body: JSON.stringify(data) });
   }
-
   async getSprintsBySpace(spaceId) {
     return this.request(`/sprints/space/${spaceId}`);
   }
-
   async getSprint(id) {
     return this.request(`/sprints/${id}`);
   }
-
   async updateSprint(id, data) {
-    return this.request(`/sprints/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    return this.request(`/sprints/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
-
   async deleteSprint(id) {
-    return this.request(`/sprints/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/sprints/${id}`, { method: 'DELETE' });
   }
-
   async startSprint(id) {
-    return this.request(`/sprints/${id}/start`, {
-      method: 'POST',
-    });
+    return this.request(`/sprints/${id}/start`, { method: 'POST' });
   }
-
   async finishSprint(id, data) {
-    return this.request(`/sprints/${id}/finish`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return this.request(`/sprints/${id}/finish`, { method: 'POST', body: JSON.stringify(data) });
   }
-
   async addAssignee(sprintId, assigneeNumber) {
     return this.request(`/sprints/${sprintId}/assignees`, {
       method: 'POST',
       body: JSON.stringify({ assignee_number: assigneeNumber }),
     });
   }
-
   async removeAssignee(sprintId, assigneeNumber) {
-    return this.request(`/sprints/${sprintId}/assignees/${assigneeNumber}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/sprints/${sprintId}/assignees/${assigneeNumber}`, { method: 'DELETE' });
   }
 
-  // Backlog Items
+  // ── Backlog Items ───────────────────────────────────────────────────────────
   async createBacklogItem(data) {
-    return this.request('/backlog/', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return this.request('/backlog/', { method: 'POST', body: JSON.stringify(data) });
   }
-
   async getBacklogItemsBySpace(spaceId) {
     return this.request(`/backlog/space/${spaceId}`);
   }
-
   async getUnassignedBacklogItems(spaceId) {
     return this.request(`/backlog/space/${spaceId}/backlog`);
   }
-
   async getBacklogItemsBySprint(sprintId) {
     return this.request(`/backlog/sprint/${sprintId}`);
   }
-
   async getBacklogItem(id) {
     return this.request(`/backlog/${id}`);
   }
-
   async updateBacklogItem(id, data) {
-    return this.request(`/backlog/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    return this.request(`/backlog/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
-
   async deleteBacklogItem(id) {
-    return this.request(`/backlog/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request(`/backlog/${id}`, { method: 'DELETE' });
   }
-
   async updateItemStatus(id, status) {
-    return this.request(`/backlog/${id}/status?status=${status}`, {
-      method: 'PATCH',
-    });
+    return this.request(`/backlog/${id}/status?status=${status}`, { method: 'PATCH' });
   }
 
-  // Impact Analysis
-  async analyzeImpact(data) {
-    return this.request('/impact/analyze', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
+  // ── Impact Analysis ─────────────────────────────────────────────────────────
   async getSprintContext(sprintId) {
-    return this.request(`/impact/sprint/${sprintId}/context`);
+    return this.request(`/impact/sprints/${sprintId}/context`);
   }
-
-  async batchAnalyzeImpact(items) {
-    return this.request('/impact/batch-analyze', {
-      method: 'POST',
-      body: JSON.stringify(items),
-    });
+  async analyzeImpact(data) {
+    return this.request('/impact/analyze', { method: 'POST', body: JSON.stringify(data) });
   }
-
-  // AI Story Points
-  async predictStoryPoints(data) {
-    return this.request('/ai/predict-story-points', {
-      method: 'POST',
+  async recordImpactFeedback(logId, data) {
+    return this.request(`/impact/logs/${logId}/feedback`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
+  // GET /api/impact/history/{spaceId} — persistent history from MongoDB
+  async getAnalysisHistory(spaceId, limit = 50) {
+    return this.request(`/impact/history/${spaceId}?limit=${limit}`);
+  }
 
-  // Analytics & Charts
+  // ── Analytics & Charts ──────────────────────────────────────────────────────
+  // analytics_routes.py is mounted at prefix /api/analytics
   async getSprintBurndown(sprintId) {
-    return this.request(`/sprints/${sprintId}/burndown`);
+    return this.request(`/analytics/sprints/${sprintId}/burndown`);
   }
-
   async getSprintBurnup(sprintId) {
-    return this.request(`/sprints/${sprintId}/burnup`);
+    return this.request(`/analytics/sprints/${sprintId}/burnup`);
+  }
+  async getVelocityChart(spaceId) {
+    return this.request(`/analytics/spaces/${spaceId}/velocity`);
   }
 
-  async getVelocityChart(spaceId) {
-    return this.request(`/spaces/${spaceId}/velocity`);
+  // ── AI Story Points ─────────────────────────────────────────────────────────
+  async predictStoryPoints(data) {
+    return this.request('/ai/predict', { method: 'POST', body: JSON.stringify(data) });
   }
 }
 

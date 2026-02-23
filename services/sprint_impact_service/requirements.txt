@@ -10,3 +10,10 @@ scikit-learn
 xgboost
 torch
 pytorch-tabnet
+
+# cd services
+# cd sprint_impact_service
+# pip install -r requirements.txt
+# To run the service: python main.py
+
+#venv\Scripts\activate
