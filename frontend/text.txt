@@ -1,10 +1,71 @@
-Sending analysis request: Object
-[NEW] Explain Console errors by using Copilot in Edge: click
-         
-         to explain an error. 
-        Learn more
-        Don't show again
-ImpactAnalyzer.jsx:42 Analysis result received: {effort: {…}, schedule_risk: {…}, quality_risk: {…}, productivity: {…}, summary: {…}, …}
-installHook.js:1  No display object in result: {effort: {…}, schedule_risk: {…}, quality_risk: {…}, productivity: {…}, summary: {…}, …}
-overrideMethod @ installHook.js:1
-handleAnalyze @ ImpactAnalyzer.jsx:45
+Summary of What to Fix
+There are three actual problems here, none of which affect the recommendation correctness:
+1. Effort hours ignore team size. 18h should be 180h (18h × 10 assignees). The max_assignees or the actual len(sprint.assignees) count needs to be multiplied into the hours_remaining calculation. This is purely a capacity display issue.
+2. Effort prediction is unreliable until tfidf_vectorizer.pkl is generated. The 3h prediction for a microservice migration is nonsense because all text features are zeros. Run generate_tfidf_vectorizer.py from the previous session to fix this.
+3. The raw schedule risk percentage in the recommendation reason text is not capped. The card says "99%" (capped correctly) but the reasoning text says "100%" (uncapped raw float). The _cap_pct() function needs to also be applied to the number inside the recommendation_engine.py reason string, not just in impact_predictor.py., Analyze New Requirement
+Sprint
+Select Sprint…
+Sprint 2 (Planned)
+sp 1 (Active) 🔥
+sprint1 (Completed)
+📊 Sprint Status
+Load:
+15 SP
+Items:
+3
+Days Left:
+3
+Progress:
+71.4%
+Sprint Capacity
+15 / 30 SP
+
+Title *
+Description
+Story Points
+Priority
+Low
+Medium
+High
+Critical
+Type
+Task
+Story
+Bug
+Subtask
+
+Analyze Impact
+Impact Analysis Results
+
+⏱️ Effort Estimate
+3h / 18h Remaining
+🟢 Safe
+Fits in Sprint
+Needs 3h with 18h remaining (6h/day). Fits comfortably.
+📅 Schedule Risk
+99% Probability of Spillover
+🔴 Critical
+Delay Imminent
+99% chance of spillover. Sprint goal is in danger. Consider deferring or swapping.
+📉 Productivity Impact
+-99% Velocity
+🔴 Critical
+High Drag
+3.0 days lost to context switching. Team workflow seriously disrupted — avoid adding mid-sprint.
+🐛 Quality Risk
+1% Defect Risk
+🟢 Safe
+Standard Risk
+1% defect likelihood. Standard testing required.
+RECOMMENDATION
+✂️
+AI RECOMMENDATION
+✂️ Split Required — Elephant Protocol
+SPLIT
+Ticket size (13 SP) is too large to complete in 3 remaining days. Split required.
+'Migrate Monolith User Service to Microservices' is too large (13 SP) to fit safely into the remaining sprint capacity. Adding it as-is risks schedule spillover (100%) and elevated defect rates (0%) because large tickets accumulate context-switching overhead and are harder to test thoroughly under time pressure. Apply the Elephant Protocol: (1) 'Migrate Monolith User Service to Microservices — Analysis & Design' (4 SP) — spike, research, and acceptance criteria refinement, completable this sprint; (2) 'Migrate Monolith User Service to Microservices — Implementation' (9 SP) — full development and QA, planned for the next sprint. This approach preserves sprint commitments while maintaining delivery momentum.
+▶ ACTION PLAN
+Original size: 13 SP · Analysis slice: 4 SP · Implementation slice: 9 SP
+✂️ Split Ticket
+OR CHOOSE MANUALLY
+✅ ADD🔄 SWAP⏸ DEFER, this is the result and some errors to fix, what to do is this correct

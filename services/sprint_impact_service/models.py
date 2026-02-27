@@ -33,26 +33,27 @@ class DurationType(str, Enum):
     FOUR_WEEKS = "4 Weeks"
     CUSTOM = "Custom"
 
-# Space Models
 class SpaceCreate(BaseModel):
     name: str
     description: str
     max_assignees: int = Field(ge=1)
+    focus_hours_per_day: float = Field(default=6.0, ge=1.0, le=24.0)
 
 class SpaceUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     max_assignees: Optional[int] = Field(default=None, ge=1)
+    focus_hours_per_day: Optional[float] = Field(default=None, ge=1.0, le=24.0)
 
 class Space(BaseModel):
     id: str
     name: str
     description: str
     max_assignees: int
+    focus_hours_per_day: float = 6.0
     created_at: datetime
     updated_at: datetime
 
-# Sprint Models
 class SprintCreate(BaseModel):
     name: str
     goal: str
@@ -78,7 +79,6 @@ class Sprint(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-# Backlog Item Models
 class BacklogItemCreate(BaseModel):
     title: str
     description: str
@@ -110,13 +110,12 @@ class BacklogItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-# Sprint Action Models
 class SprintStartRequest(BaseModel):
     sprint_id: str
 
 class SprintFinishRequest(BaseModel):
     sprint_id: str
-    move_incomplete_to: Optional[str] = None  # sprint_id or "backlog"
+    move_incomplete_to: Optional[str] = None
 
 class AddAssigneeRequest(BaseModel):
     assignee_number: int

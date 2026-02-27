@@ -13,8 +13,6 @@ from explanation_generator import explanation_generator
 router = APIRouter()
 
 
-# ─── Schemas ──────────────────────────────────────────────────────────────────
-
 class AnalyzeRequest(BaseModel):
     sprint_id:    str
     title:        str = Field(..., min_length=1, max_length=300)
@@ -30,8 +28,6 @@ class FeedbackRequest(BaseModel):
     user_rating:  Optional[int]  = Field(default=None, ge=1, le=5)
     user_comment: Optional[str]  = None
 
-
-# ─── Shared helpers ───────────────────────────────────────────────────────────
 
 def _build_sprint_context(sprint: dict, existing_items: list) -> dict:
     start_str = sprint.get("start_date")
@@ -79,8 +75,6 @@ def _derive_risk_level(schedule_risk: float, quality_risk: float) -> str:
     return "low"
 
 
-# ─── GET /api/impact/sprints/{sprint_id}/context ──────────────────────────────
-
 @router.get("/sprints/{sprint_id}/context")
 async def get_sprint_context(sprint_id: str):
     sprint = await get_sprint_by_id(sprint_id)
@@ -103,13 +97,6 @@ async def get_sprint_context(sprint_id: str):
     }
 
 
-# ─── GET /api/impact/history/{space_id} ──────────────────────────────────────
-#
-# Strategy:
-#   1. Collect all sprint_ids that belong to this space from the sprints collection
-#   2. Query recommendation_logs WHERE sprint_id IN that list
-#   3. This works for ALL logs — old ones (no space_id field) and new ones alike
-#
 @router.get("/history/{space_id}")
 async def get_analysis_history(
     space_id: str,
@@ -117,24 +104,18 @@ async def get_analysis_history(
 ):
     db = get_database()
 
-    # Step 1 — get all sprint_ids + names for this space
-    sprint_ids: list[str]       = []
+    sprint_ids: list[str]        = []
     sprint_names: dict[str, str] = {}
 
-    async for s in db.sprints.find(
-        {"space_id": space_id},
-        {"_id": 1, "name": 1}
-    ):
+    async for s in db.sprints.find({"space_id": space_id}, {"_id": 1, "name": 1}):
         sid = str(s["_id"])
         sprint_ids.append(sid)
         sprint_names[sid] = s.get("name", "Unknown Sprint")
 
-    # No sprints in this space → return empty (not 404)
     if not sprint_ids:
         return {"history": [], "total": 0}
 
-    # Step 2 — fetch logs for those sprints
-    logs = []
+    logs   = []
     cursor = (
         db.recommendation_logs
         .find({"sprint_id": {"$in": sprint_ids}})
@@ -144,7 +125,7 @@ async def get_analysis_history(
 
     async for doc in cursor:
         sprint_id = doc.get("sprint_id", "")
-        risk = _derive_risk_level(
+        risk      = _derive_risk_level(
             doc.get("ml_schedule_risk", 0.0),
             doc.get("ml_quality_risk",  0.0),
         )
@@ -166,8 +147,6 @@ async def get_analysis_history(
     return {"history": logs, "total": len(logs)}
 
 
-# ─── POST /api/impact/analyze ────────────────────────────────────────────────
-
 @router.post("/analyze")
 async def analyze_impact(body: AnalyzeRequest):
     # 1. Fetch sprint
@@ -177,6 +156,18 @@ async def analyze_impact(body: AnalyzeRequest):
 
     existing_items = await get_backlog_items_by_sprint(body.sprint_id)
     sprint_context = _build_sprint_context(sprint, existing_items)
+
+    # 2. Fetch space to get focus_hours_per_day
+    focus_hours_per_day = 6.0
+    space_id = sprint.get("space_id", "")
+    if space_id:
+        try:
+            db    = get_database()
+            space = await db.spaces.find_one({"_id": ObjectId(space_id)}) if ObjectId.is_valid(space_id) else None
+            if space:
+                focus_hours_per_day = float(space.get("focus_hours_per_day", 6.0))
+        except Exception:
+            pass  # fall back to default if lookup fails
 
     item_data = {
         "title":        body.title,
@@ -188,9 +179,12 @@ async def analyze_impact(body: AnalyzeRequest):
         "sprint_id":    body.sprint_id,
     }
 
-    # 2. ML predictions
+    # 3. ML predictions — pass focus_hours_per_day into the predictor
     try:
-        ml_result = impact_predictor.predict_all_impacts(item_data, sprint_context, existing_items)
+        ml_result = impact_predictor.predict_all_impacts(
+            item_data, sprint_context, existing_items,
+            focus_hours_per_day=focus_hours_per_day,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"ML prediction failed: {exc}")
 
@@ -202,7 +196,7 @@ async def analyze_impact(body: AnalyzeRequest):
         "free_capacity":   max(0, sprint_context["team_velocity_14d"] - sprint_context["sprint_load_7d"]),
     }
 
-    # 3. Recommendation + explanation
+    # 4. Recommendation + explanation
     recommendation = recommendation_engine.generate_recommendation(
         new_ticket     = item_data,
         sprint_context = sprint_context,
@@ -218,14 +212,13 @@ async def analyze_impact(body: AnalyzeRequest):
         "work_item_data":      item_data,
     })
 
-    # 4. Log to MongoDB — store space_id so future history queries can use it
-    log_id   = None
-    space_id = sprint.get("space_id", "")
+    # 5. Log to MongoDB
+    log_id = None
     try:
         db = get_database()
         result = await db.recommendation_logs.insert_one({
             "sprint_id":                body.sprint_id,
-            "space_id":                 space_id,          # ← stored for direct lookup
+            "space_id":                 space_id,
             "work_item_title":          body.title,
             "work_item_story_points":   body.story_points,
             "work_item_priority":       body.priority,
@@ -236,6 +229,7 @@ async def analyze_impact(body: AnalyzeRequest):
             "ml_schedule_risk":         raw_ml["schedule_risk"],
             "ml_quality_risk":          raw_ml["quality_risk"],
             "ml_velocity_change":       raw_ml["velocity_change"],
+            "focus_hours_per_day":      focus_hours_per_day,
             "accepted":                 None,
             "taken_action":             None,
             "user_rating":              None,
@@ -244,9 +238,8 @@ async def analyze_impact(body: AnalyzeRequest):
         })
         log_id = str(result.inserted_id)
     except Exception:
-        pass  # never break the response over logging
+        pass
 
-    # 5. Return unified response
     return {
         "log_id":       log_id,
         "sprint_id":    body.sprint_id,
@@ -263,16 +256,15 @@ async def analyze_impact(body: AnalyzeRequest):
         "recommendation": recommendation,
         "explanation":    dict(explanation),
         "sprint_context": {
-            "current_load":    sprint_context["current_load"],
-            "item_count":      sprint_context["item_count"],
-            "days_remaining":  sprint_context["days_remaining"],
-            "sprint_progress": sprint_context["sprint_progress"],
-            "free_capacity":   raw_ml["free_capacity"],
+            "current_load":         sprint_context["current_load"],
+            "item_count":           sprint_context["item_count"],
+            "days_remaining":       sprint_context["days_remaining"],
+            "sprint_progress":      sprint_context["sprint_progress"],
+            "free_capacity":        raw_ml["free_capacity"],
+            "focus_hours_per_day":  focus_hours_per_day,
         },
     }
 
-
-# ─── PATCH /api/impact/logs/{log_id}/feedback ─────────────────────────────────
 
 @router.patch("/logs/{log_id}/feedback")
 async def record_feedback(log_id: str, body: FeedbackRequest):
@@ -297,4 +289,3 @@ async def record_feedback(log_id: str, body: FeedbackRequest):
         raise HTTPException(status_code=404, detail="Log entry not found.")
 
     return {"ok": True, "log_id": log_id}
-
