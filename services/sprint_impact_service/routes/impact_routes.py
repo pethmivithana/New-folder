@@ -157,8 +157,9 @@ async def analyze_impact(body: AnalyzeRequest):
     existing_items = await get_backlog_items_by_sprint(body.sprint_id)
     sprint_context = _build_sprint_context(sprint, existing_items)
 
-    # 2. Fetch space to get focus_hours_per_day
+    # 2. Fetch space to get focus_hours_per_day and risk_appetite
     focus_hours_per_day = 6.0
+    risk_appetite = "Standard"
     space_id = sprint.get("space_id", "")
     if space_id:
         try:
@@ -166,8 +167,9 @@ async def analyze_impact(body: AnalyzeRequest):
             space = await db.spaces.find_one({"_id": ObjectId(space_id)}) if ObjectId.is_valid(space_id) else None
             if space:
                 focus_hours_per_day = float(space.get("focus_hours_per_day", 6.0))
+                risk_appetite = space.get("risk_appetite", "Standard")
         except Exception:
-            pass  # fall back to default if lookup fails
+            pass  # fall back to defaults if lookup fails
 
     item_data = {
         "title":        body.title,
@@ -197,7 +199,9 @@ async def analyze_impact(body: AnalyzeRequest):
     }
 
     # 4. Recommendation + explanation
-    recommendation = recommendation_engine.generate_recommendation(
+    # Create engine instance with space's risk_appetite setting
+    engine = recommendation_engine.RecommendationEngine(risk_appetite=risk_appetite)
+    recommendation = engine.generate_recommendation(
         new_ticket     = item_data,
         sprint_context = sprint_context,
         active_items   = existing_items,

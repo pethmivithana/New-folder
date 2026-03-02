@@ -91,6 +91,61 @@ async def get_backlog_items_by_sprint(sprint_id: str) -> list:
     return items
 
 
+async def get_last_completed_sprint(space_id: str) -> dict | None:
+    """
+    Fetch the most recently completed sprint for a space.
+    Used to calculate actual focus hours from real sprint data.
+    
+    Returns:
+        dict with: sprint_id, completed_story_points, sprint_duration_days, assignee_count
+        or None if no completed sprint exists
+    """
+    db = get_database()
+    
+    # Find the most recent completed sprint
+    sprint = await db.sprints.find_one(
+        {"space_id": space_id, "status": "Completed"},
+        sort=[("updated_at", DESCENDING)]
+    )
+    
+    if not sprint:
+        return None
+    
+    sprint_id_str = str(sprint["_id"])
+    
+    # Calculate sprint duration in days
+    start = sprint.get("start_date")
+    end = sprint.get("end_date")
+    sprint_duration_days = 1
+    
+    if isinstance(start, str):
+        start = datetime.strptime(start, '%Y-%m-%d')
+    if isinstance(end, str):
+        end = datetime.strptime(end, '%Y-%m-%d')
+    
+    if start and end:
+        sprint_duration_days = max(1, (end - start).days)
+    
+    # Count completed story points and assignees
+    completed_story_points = 0
+    assignee_set = set()
+    
+    async for item in db.backlog_items.find({"sprint_id": sprint_id_str, "status": "Done"}):
+        completed_story_points += item.get("story_points", 0)
+        # Note: assignees might be stored differently; adjust based on your schema
+        if "assignee_id" in item:
+            assignee_set.add(item["assignee_id"])
+    
+    assignee_count = max(1, len(assignee_set))
+    
+    return {
+        "sprint_id": sprint_id_str,
+        "completed_story_points": completed_story_points,
+        "sprint_duration_days": sprint_duration_days,
+        "assignee_count": assignee_count,
+    }
+
+
 # ── Analytics helpers ─────────────────────────────────────────────────────────
 
 async def get_space_velocity_history(space_id: str, limit: int = 10) -> list:

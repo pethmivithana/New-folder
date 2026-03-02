@@ -33,17 +33,24 @@ class DurationType(str, Enum):
     FOUR_WEEKS = "4 Weeks"
     CUSTOM = "Custom"
 
+class RiskAppetite(str, Enum):
+    LENIENT = "Lenient"
+    STANDARD = "Standard"
+    STRICT = "Strict"
+
 class SpaceCreate(BaseModel):
     name: str
     description: str
     max_assignees: int = Field(ge=1)
     focus_hours_per_day: float = Field(default=6.0, ge=1.0, le=24.0)
+    risk_appetite: RiskAppetite = Field(default=RiskAppetite.STANDARD)
 
 class SpaceUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     max_assignees: Optional[int] = Field(default=None, ge=1)
     focus_hours_per_day: Optional[float] = Field(default=None, ge=1.0, le=24.0)
+    risk_appetite: Optional[RiskAppetite] = None
 
 class Space(BaseModel):
     id: str
@@ -51,6 +58,7 @@ class Space(BaseModel):
     description: str
     max_assignees: int
     focus_hours_per_day: float = 6.0
+    risk_appetite: str = "Standard"
     created_at: datetime
     updated_at: datetime
 
