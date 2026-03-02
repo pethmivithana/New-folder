@@ -14,6 +14,7 @@
 
 import { useState, useEffect } from 'react';
 import api from './api';
+import AIStoryPointSuggester from './AIStoryPointSuggester';
 
 // ─── Action metadata ──────────────────────────────────────────────────────────
 const ACTION_META = {
@@ -356,6 +357,15 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
               onChange={e => setFormData({ ...formData, description: e.target.value })}
               className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-gray-400 resize-none"
               rows={4} placeholder="Describe the requirement…" />
+          </div>
+
+          {/* AI Story Point Suggester */}
+          <div className="mb-4">
+            <AIStoryPointSuggester 
+              title={formData.title} 
+              description={formData.description}
+              onSuggestion={(points) => setFormData({ ...formData, story_points: points })}
+            />
           </div>
 
           {/* Story points + Priority */}

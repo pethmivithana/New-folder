@@ -4,35 +4,62 @@ from typing import Dict, List, Any, Optional
 PRIORITY_RANK = {"Highest": 5, "Critical": 5, "High": 4, "Medium": 3, "Low": 2, "Lowest": 1}
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CALIBRATION SETTINGS — Tuning for domain-specific risk tolerance
+# RISK APPETITE THRESHOLDS — Domain-specific risk tolerance tuning
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# These thresholds control when the ML Safety Net triggers DEFER recommendations.
-# Adjust these based on observed false positives/negatives from ground truth data.
+# Defines ML thresholds for different risk appetites. Overridable per Space.
 #
-# SCHEDULE_RISK_THRESHOLD
-#   Current: 50.0%
-#   If you see too many false DEFER recommendations for scheduling:
-#     - Increase to 60-70% to be more permissive
-#   If you see too many undetected schedule slippages:
-#     - Decrease to 40% to be more conservative
+# STRICT: Conservative — high confidence required to add mid-sprint work
+#   - Schedule risk > 30% → DEFER
+#   - Productivity drag < -20% → DEFER
+#   - Quality risk > 60% → DEFER
 #
-# PROD_DRAG_THRESHOLD (as negative velocity_change)
-#   Current: -30.0% (means drop_pct > 30)
-#   If you see productivity surprises:
-#     - Set to -40% to allow more drag
-#     - Set to -20% to be stricter on context-switching impact
+# STANDARD (default): Balanced — moderate confidence required
+#   - Schedule risk > 50% → DEFER
+#   - Productivity drag < -30% → DEFER
+#   - Quality risk > 70% → DEFER
 #
-# QUALITY_RISK_THRESHOLD
-#   Current: 70.0% (was 30%, now relaxed because TabNet is tuned)
-#   If defect rates are still high:
-#     - Decrease to 50-60% to trigger DEFER more often
-#   If quality warnings are premature:
-#     - Increase to 80% to filter noise
+# LENIENT: Permissive — allow more mid-sprint additions
+#   - Schedule risk > 70% → DEFER
+#   - Productivity drag < -40% → DEFER
+#   - Quality risk > 80% → DEFER
 #
+
+def get_thresholds_by_appetite(risk_appetite: str) -> dict:
+    """
+    Map risk appetite setting to ML thresholds.
+    
+    Args:
+        risk_appetite: One of "Strict", "Standard", "Lenient"
+    
+    Returns:
+        dict with schedule_risk_threshold, prod_drag_threshold, quality_risk_threshold
+    """
+    thresholds = {
+        "Strict": {
+            "schedule_risk_threshold": 30.0,
+            "prod_drag_threshold": -20.0,
+            "quality_risk_threshold": 60.0,
+        },
+        "Standard": {
+            "schedule_risk_threshold": 50.0,
+            "prod_drag_threshold": -30.0,
+            "quality_risk_threshold": 70.0,
+        },
+        "Lenient": {
+            "schedule_risk_threshold": 70.0,
+            "prod_drag_threshold": -40.0,
+            "quality_risk_threshold": 80.0,
+        },
+    }
+    
+    return thresholds.get(risk_appetite, thresholds["Standard"])
+
+
+# Legacy defaults for backward compatibility
 SCHEDULE_RISK_THRESHOLD = 50.0
 PROD_DRAG_THRESHOLD     = -30.0
-QUALITY_RISK_THRESHOLD  = 70.0  # Relaxed: TabNet calibration is now domain-aware
+QUALITY_RISK_THRESHOLD  = 70.0
 
 
 class RecommendationEngine:
@@ -40,8 +67,19 @@ class RecommendationEngine:
     MIN_DAYS_FOR_NEW_WORK   = 2
     LARGE_TICKET_SP         = 13
     LARGE_TICKET_DAYS       = 10
-    # Thresholds now defined at module level for easier tuning.
-    # Reference: SCHEDULE_RISK_THRESHOLD, PROD_DRAG_THRESHOLD, QUALITY_RISK_THRESHOLD
+
+    def __init__(self, risk_appetite: str = "Standard"):
+        """
+        Initialize recommendation engine with configurable risk appetite.
+        
+        Args:
+            risk_appetite: One of "Strict", "Standard", "Lenient" (case-sensitive)
+        """
+        thresholds = get_thresholds_by_appetite(risk_appetite)
+        self.schedule_risk_threshold = thresholds["schedule_risk_threshold"]
+        self.prod_drag_threshold = thresholds["prod_drag_threshold"]
+        self.quality_risk_threshold = thresholds["quality_risk_threshold"]
+        self.risk_appetite = risk_appetite
 
     def generate_recommendation(
         self,
@@ -150,16 +188,16 @@ class RecommendationEngine:
                 impact={"schedule_risk": schedule_risk, "original_sp": new_sp},
             )
 
-        # ── Rule 2: ML Safety Net — multi-signal DEFER ────────────────────────
+        # ── Rule 2: ML Safety Net — multi-signal DEFER ───────���────────────────
         # Triggers if ANY of the three ML signals exceeds its threshold.
         # The reason text dynamically names which signal(s) caused the deferral.
         # Uses module-level calibration constants for threshold tuning.
         triggered = []
-        if schedule_risk > SCHEDULE_RISK_THRESHOLD:
+        if schedule_risk > self.schedule_risk_threshold:
             triggered.append(f"Schedule Risk is too high ({schedule_risk:.0f}%)")
-        if velocity_change < PROD_DRAG_THRESHOLD:
+        if velocity_change < self.prod_drag_threshold:
             triggered.append(f"Productivity Drag is too high ({abs(velocity_change):.0f}% slowdown)")
-        if quality_risk > QUALITY_RISK_THRESHOLD:
+        if quality_risk > self.quality_risk_threshold:
             triggered.append(f"Quality Risk is too high ({quality_risk:.0f}% defect probability)")
 
         if triggered:

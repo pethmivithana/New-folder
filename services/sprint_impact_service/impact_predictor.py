@@ -89,9 +89,17 @@ def _cap(v: float, lo: float = 0.0, hi: float = 99.0) -> float:
 def generate_display_metrics(
     eff: dict, sched: dict, prod: dict, qual: dict,
     sprint_context: dict,
-    focus_hours_per_day: float = _DEFAULT_FOCUS_HOURS,
+    focus_hours_per_day: float = None,
 ) -> dict:
-    """Convert raw prediction dicts into frontend-ready display objects."""
+    """Convert raw prediction dicts into frontend-ready display objects.
+    
+    Args:
+        focus_hours_per_day: Optional override for daily focus hours.
+            If None, falls back to _DEFAULT_FOCUS_HOURS (6.0).
+            Typically calculated from previous sprint's actual productivity.
+    """
+    if focus_hours_per_day is None:
+        focus_hours_per_day = _DEFAULT_FOCUS_HOURS
     days_remaining  = max(1, sprint_context.get('days_remaining', 14))
     hours_remaining = days_remaining * focus_hours_per_day
 
