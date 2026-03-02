@@ -3,15 +3,45 @@ from typing import Dict, List, Any, Optional
 
 PRIORITY_RANK = {"Highest": 5, "Critical": 5, "High": 4, "Medium": 3, "Low": 2, "Lowest": 1}
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CALIBRATION SETTINGS — Tuning for domain-specific risk tolerance
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# These thresholds control when the ML Safety Net triggers DEFER recommendations.
+# Adjust these based on observed false positives/negatives from ground truth data.
+#
+# SCHEDULE_RISK_THRESHOLD
+#   Current: 50.0%
+#   If you see too many false DEFER recommendations for scheduling:
+#     - Increase to 60-70% to be more permissive
+#   If you see too many undetected schedule slippages:
+#     - Decrease to 40% to be more conservative
+#
+# PROD_DRAG_THRESHOLD (as negative velocity_change)
+#   Current: -30.0% (means drop_pct > 30)
+#   If you see productivity surprises:
+#     - Set to -40% to allow more drag
+#     - Set to -20% to be stricter on context-switching impact
+#
+# QUALITY_RISK_THRESHOLD
+#   Current: 70.0% (was 30%, now relaxed because TabNet is tuned)
+#   If defect rates are still high:
+#     - Decrease to 50-60% to trigger DEFER more often
+#   If quality warnings are premature:
+#     - Increase to 80% to filter noise
+#
+SCHEDULE_RISK_THRESHOLD = 50.0
+PROD_DRAG_THRESHOLD     = -30.0
+QUALITY_RISK_THRESHOLD  = 70.0  # Relaxed: TabNet calibration is now domain-aware
+
 
 class RecommendationEngine:
 
     MIN_DAYS_FOR_NEW_WORK   = 2
     LARGE_TICKET_SP         = 13
     LARGE_TICKET_DAYS       = 10
-    SCHEDULE_RISK_THRESHOLD = 50.0   # Rule 2: schedule_risk % above this → DEFER
-    PROD_DRAG_THRESHOLD     = -30.0  # Rule 2: velocity_change % below this → DEFER
-    QUALITY_RISK_THRESHOLD  = 70.0   # Rule 2: quality_risk % above this → DEFER
+    # Thresholds now defined at module level for easier tuning.
+    # Reference: SCHEDULE_RISK_THRESHOLD, PROD_DRAG_THRESHOLD, QUALITY_RISK_THRESHOLD
 
     def generate_recommendation(
         self,
@@ -123,12 +153,13 @@ class RecommendationEngine:
         # ── Rule 2: ML Safety Net — multi-signal DEFER ────────────────────────
         # Triggers if ANY of the three ML signals exceeds its threshold.
         # The reason text dynamically names which signal(s) caused the deferral.
+        # Uses module-level calibration constants for threshold tuning.
         triggered = []
-        if schedule_risk > self.SCHEDULE_RISK_THRESHOLD:
+        if schedule_risk > SCHEDULE_RISK_THRESHOLD:
             triggered.append(f"Schedule Risk is too high ({schedule_risk:.0f}%)")
-        if velocity_change < self.PROD_DRAG_THRESHOLD:
+        if velocity_change < PROD_DRAG_THRESHOLD:
             triggered.append(f"Productivity Drag is too high ({abs(velocity_change):.0f}% slowdown)")
-        if quality_risk > self.QUALITY_RISK_THRESHOLD:
+        if quality_risk > QUALITY_RISK_THRESHOLD:
             triggered.append(f"Quality Risk is too high ({quality_risk:.0f}% defect probability)")
 
         if triggered:
