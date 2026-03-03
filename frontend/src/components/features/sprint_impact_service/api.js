@@ -137,6 +137,11 @@ class ApiClient {
   async predictStoryPoints(data) {
     return this.request('/ai/predict', { method: 'POST', body: JSON.stringify(data) });
   }
+
+  // ── AI Sprint Goal Alignment ────────────────────────────────────────────────
+  async analyzeSprintGoalAlignment(data) {
+    return this.request('/ai/analyze-sprint-goal-alignment', { method: 'POST', body: JSON.stringify(data) });
+  }
 }
 
 export default new ApiClient();

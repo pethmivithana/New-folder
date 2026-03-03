@@ -5,6 +5,8 @@ import re
 from collections import Counter
 import math
 
+from sprint_goal_alignment import analyze_sprint_goal_alignment
+
 router = APIRouter()
 
 class StoryPointRequest(BaseModel):
@@ -16,6 +18,24 @@ class StoryPointResponse(BaseModel):
     confidence: float
     reasoning: List[str]
     complexity_indicators: Dict[str, int]
+
+class SprintGoalAlignmentRequest(BaseModel):
+    sprint_goal: str
+    requirement_title: str
+    requirement_description: str
+    requirement_priority: str  # Critical, Blocker, High, Medium, Low
+    requirement_epic: Optional[str] = None
+    sprint_epic: Optional[str] = None
+    requirement_components: Optional[List[str]] = None
+    sprint_components: Optional[List[str]] = None
+
+class SprintGoalAlignmentResponse(BaseModel):
+    critical_blocker: Dict
+    semantic_analysis: Dict
+    metadata_analysis: Dict
+    final_recommendation: str  # ACCEPT, DEFER, CONSIDER, EVALUATE
+    recommendation_reason: str
+    next_steps: str
 
 # Complexity keywords and their weights
 COMPLEXITY_KEYWORDS = {
@@ -243,3 +263,33 @@ async def get_complexity_keywords():
         "interfaces": INTERFACE_KEYWORDS,
         "technologies": TECH_KEYWORDS
     }
+
+@router.post("/analyze-sprint-goal-alignment", response_model=SprintGoalAlignmentResponse)
+async def analyze_sprint_goal_alignment_endpoint(request: SprintGoalAlignmentRequest):
+    """
+    Analyze if a new requirement aligns with the current sprint goal.
+    
+    Uses 4-layer analysis:
+      1. Critical Blocker Detection — production emergencies
+      2. Semantic Similarity Analysis — alignment scoring
+      3. Metadata Traceability Check — epic & component alignment
+      4. Integrated Recommendation — final decision
+    
+    Returns: Comprehensive analysis with final recommendation (ACCEPT/DEFER/CONSIDER/EVALUATE)
+    """
+    
+    if not request.sprint_goal or not request.requirement_title:
+        raise HTTPException(status_code=400, detail="sprint_goal and requirement_title are required")
+    
+    result = analyze_sprint_goal_alignment(
+        sprint_goal=request.sprint_goal,
+        requirement_title=request.requirement_title,
+        requirement_desc=request.requirement_description or "",
+        requirement_priority=request.requirement_priority or "Medium",
+        requirement_epic=request.requirement_epic,
+        sprint_epic=request.sprint_epic,
+        requirement_components=request.requirement_components,
+        sprint_components=request.sprint_components,
+    )
+    
+    return SprintGoalAlignmentResponse(**result)

@@ -1,0 +1,305 @@
+SPRINT GOAL ALIGNMENT - UI & COMPONENT REFERENCE
+═══════════════════════════════════════════════════════════════════════════════
+
+IMPACT ANALYZER LAYOUT WITH NEW FEATURE
+─────────────────────────────────────────────────────────────────────────────
+
+┌─ LEFT COLUMN ──────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  ┌─ Analyze New Requirement ─────────────────────────────────────────────┐ │
+│  │                                                                       │ │
+│  │  Sprint Selector [Active Sprint (Active) 🔥         ▼]              │ │
+│  │                                                                       │ │
+│  │  ┌─ Sprint Status ─────────────────────────────────────────────────┐ │ │
+│  │  │ 📊 Load: 25 SP | Items: 8 | Days Left: 5 | Progress: 60%      │ │ │
+│  │  └─────────────────────────────────────────────────────────────────┘ │ │
+│  │                                                                       │ │
+│  │  Title*: [Input field with placeholder]                              │ │
+│  │                                                                       │ │
+│  │  Description: [Textarea with placeholder]                            │ │
+│  │                                                                       │ │
+│  │  ┌─ Story Points ──────────┬─ Priority ─────────┐                  │ │
+│  │  │ [5] [✨ Suggest]       │ [Medium       ▼]  │                  │ │
+│  │  └────────────────────────┴────────────────────┘                  │ │
+│  │                                                                       │ │
+│  │  Type: [Task ▼]                                                      │ │
+│  │                                                                       │ │
+│  │  ┌─ Check Sprint Goal Alignment ─────────────────────────────────┐ │ │
+│  │  │  ✓ Check Sprint Goal Alignment  (CYAN-BLUE BUTTON)          │ │ │
+│  │  └───────────────────────────────────────────────────────────────┘ │ │
+│  │                                                                       │ │
+│  │  ┌─ Analyze Impact ────────────────────────────────────────────────┐ │ │
+│  │  │  ⚡ Analyze Impact  (PINK-ROSE GRADIENT BUTTON)               │ │ │
+│  │  └─────────────────────────────────────────────────────────────────┘ │ │
+│  │                                                                       │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─ RIGHT COLUMN (Before Alignment Check) ───────────────────────────────────────────┐
+│                                                                                   │
+│  ┌─ Empty State ─────────────────────────────────────────────────────┐         │
+│  │                                                                   │         │
+│  │        📊 (Icon)                                                 │         │
+│  │                                                                   │         │
+│  │  No Analysis Yet                                                │         │
+│  │  Fill in the form and click "Analyze Impact"                   │         │
+│  │                                                                   │         │
+│  └───────────────────────────────────────────────────────────────────┘         │
+│                                                                                   │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+RIGHT COLUMN (After Alignment Check) - ACCEPT EXAMPLE
+─────────────────────────────────────────────────────────────────────────────
+
+┌─ Alignment Result (GREEN for ACCEPT) ────────────────────────────────────┐
+│                                                                          │
+│  ✓ Sprint Goal Alignment                              [ACCEPT]         │
+│                                                        └─ Green Badge   │
+│                                                                          │
+│  DIRECT ALIGNMENT: The requirement directly contributes to achieving   │
+│  the sprint goal.                                                       │
+│                                                                          │
+│  ┌─ Analysis ─────────────────────────────────────────────────────────┐│
+│  │ HIGHLY_RELEVANT: Strong alignment: 75% token overlap with sprint   ││
+│  │ goal                                                                ││
+│  └────────────────────────────────────────────────────────────────────┘│
+│                                                                          │
+│  ┌─ Next Steps ───────────────────────────────────────────────────────┐│
+│  │ Accept into current sprint and plan implementation.                 ││
+│  └────────────────────────────────────────────────────────────────────┘│
+│                                                                          │
+│  [Clear]            [Manual Override]                                  │
+│  Button              Button                                             │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+RIGHT COLUMN (After Alignment Check) - CONSIDER EXAMPLE
+─────────────────────────────────────────────────────────────────────────────
+
+┌─ Alignment Result (BLUE for CONSIDER) ──────────────────────────────────┐
+│                                                                          │
+│  ◆ Sprint Goal Alignment                              [CONSIDER]        │
+│                                                        └─ Blue Badge    │
+│                                                                          │
+│  TANGENTIAL WITH CONTEXT: The requirement is related to sprint work    │
+│  but does not directly advance the goal. Evaluate capacity before      │
+│  accepting.                                                             │
+│                                                                          │
+│  ┌─ Analysis ─────────────────────────────────────────────────────────┐│
+│  │ TANGENTIAL: Related but indirect: 45% token overlap suggests       ││
+│  │ shared theme                                                        ││
+│  └────────────────────────────────────────────────────────────────────┘│
+│                                                                          │
+│  ┌─ Next Steps ───────────────────────────────────────────────────────┐│
+│  │ Discuss in next daily standup. Assess team capacity and potential  ││
+│  │ impact on sprint goal before deciding.                             ││
+│  └────────────────────────────────────────────────────────────────────┘│
+│                                                                          │
+│  [Clear]            [Manual Override]                                  │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+RIGHT COLUMN (After Alignment Check) - DEFER EXAMPLE
+─────────────────────────────────────────────────────────────────────────────
+
+┌─ Alignment Result (RED for DEFER) ──────────────────────────────────────┐
+│                                                                          │
+│  X Sprint Goal Alignment                              [DEFER]           │
+│                                                        └─ Red Badge     │
+│                                                                          │
+│  OUT OF SCOPE: The requirement does not align with the sprint goal     │
+│  and should be prioritized for a future sprint.                         │
+│                                                                          │
+│  ┌─ Analysis ─────────────────────────────────────────────────────────┐│
+│  │ UNRELATED: No significant alignment: only 5% token overlap         ││
+│  └────────────────────────────────────────────────────────────────────┘│
+│                                                                          │
+│  ┌─ Next Steps ───────────────────────────────────────────────────────┐│
+│  │ Defer to product backlog. Re-prioritize for planning of the next   ││
+│  │ sprint.                                                             ││
+│  └────────────────────────────────────────────────────────────────────┘│
+│                                                                          │
+│  [Clear]            [Manual Override]                                  │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+MANUAL OVERRIDE PANEL (After Clicking "Manual Override")
+─────────────────────────────────────────────────────────────────────────────
+
+┌─ Alignment Result (with override visible) ──────────────────────────────┐
+│                                                                          │
+│  ... (result panel content above) ...                                   │
+│                                                                          │
+│  [Clear]            [Hide Manual Override]                             │
+│                                                                          │
+│  ──────────────────────────────────────────────────────────────────────│
+│  Override Recommendation                                                │
+│  [✓ ACCEPT - Add to Sprint              ▼]                             │
+│    CONSIDER - Discuss in Team                                           │
+│    EVALUATE - Careful Review                                            │
+│    DEFER - Save for Later                                               │
+│                                                                          │
+│  Reason for override: User selected ACCEPT                              │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+COLOR CODING REFERENCE
+─────────────────────────────────────────────────────────────────────────────
+
+ACCEPT (Green Panel - bg-green-50, border-green-500)
+  Badge: bg-green-200 text-green-800
+  Button: "Check Sprint Goal Alignment" (cyan), "Analyze Impact" (pink)
+
+CONSIDER (Blue Panel - bg-blue-50, border-blue-500)
+  Badge: bg-blue-200 text-blue-800
+  Emphasizes: Discuss and evaluate
+
+EVALUATE (Amber Panel - bg-amber-50, border-amber-500)
+  Badge: bg-amber-200 text-amber-800
+  Emphasizes: Careful review needed
+
+DEFER (Red Panel - bg-red-50, border-red-500)
+  Badge: bg-red-200 text-red-800
+  Emphasizes: Save for later
+
+BUTTON STATES
+─────────────────────────────────────────────────────────────────────────────
+
+[✓ Check Sprint Goal Alignment] — Normal state
+  - Cyan-blue gradient
+  - White text
+  - Rounded corners
+  - Hover: opacity-90
+
+[⟳ Checking...] — Loading state
+  - Same colors
+  - Spinner animation
+  - Disabled cursor
+
+[Disabled] — When no sprint selected
+  - opacity-50
+  - Not clickable
+
+[Clear] — Dismiss result
+  - White bg
+  - Gray text
+  - Gray border
+  - Hover: bg-gray-50
+
+[Manual Override] / [Hide Manual Override] — Toggle button
+  - Dark gray (bg-gray-700)
+  - White text
+  - Rounded corners
+  - Hover: bg-gray-800
+
+LAYOUT BEHAVIOR
+─────────────────────────────────────────────────────────────────────────────
+
+Desktop (lg breakpoint):
+  └─ grid grid-cols-1 lg:grid-cols-2 gap-8
+     ├─ Left column (form)
+     └─ Right column (results) — sticky if needed
+
+Mobile (no lg):
+  └─ Single column stack
+     ├─ Form above
+     └─ Results below
+
+Result Panel:
+  ├─ Animates in when alignment check completes
+  ├─ Scrollable if content overflows
+  ├─ Dismissible with Clear button
+  └─ Stacks above impact results if both shown
+
+INFORMATION HIERARCHY
+─────────────────────────────────────────────────────────────────────────────
+
+1. Recommendation Badge (ACCEPT/CONSIDER/EVALUATE/DEFER)
+   └─ Most important, top-right
+   
+2. Reasoning from Semantic Analysis
+   └─ Main explanation of why
+
+3. Next Steps
+   └─ Actionable guidance
+
+4. Manual Override (optional)
+   └─ If user needs to override
+
+INTERACTION FLOW
+─────────────────────────────────────────────────────────────────────────────
+
+1. User clicks "Check Sprint Goal Alignment"
+   └─ Button shows spinner
+   └─ Loading state active
+
+2. Backend analyzes (4 layers)
+   └─ Terminal shows detailed logs
+
+3. Response returns
+   └─ Spinner stops
+   └─ Button returns to normal
+
+4. Result panel slides in from top
+   └─ Colored background based on recommendation
+   └─ Content displays with explanation
+
+5. User reviews result
+   └─ Can click Clear to dismiss
+   └─ Can click Manual Override to change decision
+   └─ Can click Analyze Impact to get ML predictions
+   └─ Can click Analyze Impact + action buttons to execute
+
+6. If choosing Manual Override
+   └─ Panel expands to show dropdown
+   └─ User selects new recommendation
+   └─ Panel shows user's selection
+
+ACCESSIBILITY
+─────────────────────────────────────────────────────────────────────────────
+
+✓ Button has proper contrast
+✓ Color-coding supplemented with text labels
+✓ Not reliant on color alone for information
+✓ Buttons are keyboard accessible
+✓ Loading states clearly indicated
+✓ Error messages if any failures
+✓ Screen reader friendly labels
+
+STATE MANAGEMENT (Frontend)
+─────────────────────────────────────────────────────────────────────────────
+
+const [goalAlignment, setGoalAlignment] = useState(null);
+  └─ Stores alignment result object
+
+const [checkingAlignment, setCheckingAlignment] = useState(false);
+  └─ Controls loading spinner state
+
+const [showManualOverride, setShowManualOverride] = useState(false);
+  └─ Controls override panel visibility
+
+const [manualAlignment, setManualAlignment] = useState(null);
+  └─ Stores user's manual override selection
+
+API RESPONSE SHAPE (What gets stored in goalAlignment)
+─────────────────────────────────────────────────────────────────────────────
+
+{
+  critical_blocker: {
+    detected: boolean,
+    reason: string
+  },
+  semantic_analysis: {
+    alignment_category: "HIGHLY_RELEVANT|TANGENTIAL|UNRELATED",
+    reasoning: string
+  },
+  metadata_analysis: {
+    epic_aligned: boolean,
+    component_overlap: "high|medium|low|none",
+    details: string
+  },
+  final_recommendation: "ACCEPT|CONSIDER|EVALUATE|DEFER",
+  recommendation_reason: string,
+  next_steps: string
+}
+
+This entire object is displayed in the result panel.
