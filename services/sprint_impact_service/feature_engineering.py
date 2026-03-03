@@ -43,6 +43,7 @@ le_prio_quality.pkl    →  build_quality_features()
 
 import numpy as np
 import warnings
+import sys
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Module-level artifact holders — populated at startup by model_loader
@@ -186,6 +187,10 @@ def build_effort_features(item_data: dict, sprint_context: dict) -> dict:
     }
     for i, v in enumerate(tfidf):
         features[f'txt_{i}'] = float(v)
+    
+    # Log to terminal for visibility
+    print(f"[BUILD_EFFORT_FEATURES] Keys: {len(features)}, TF-IDF shape: {tfidf.shape}, dtype: {tfidf.dtype}", file=sys.stderr)
+    
     return features
 
 
@@ -237,6 +242,10 @@ def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> np.nd
             warnings.simplefilter('ignore')
             X = _risk_imputer.transform(X)
 
+    # Log to terminal for visibility
+    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Shape: {X.shape}, dtype: {X.dtype}", file=sys.stderr)
+    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Values: {X[0]}", file=sys.stderr)
+
     return X
 
 
@@ -253,6 +262,8 @@ def build_productivity_features(
     """
     9 features verified against the StandardScaler statistics from
     productivity_artifacts.pkl.  Scaler is applied using the real artifact.
+    
+    CRITICAL: Ensures float32 dtype and (1, 9) 2D shape for torch.tensor() consumption.
 
     Feature order (verified by matching scaler mean_ values):
     [0] story_points
@@ -294,17 +305,25 @@ def build_productivity_features(
         sprint_progress,
         type_code,
         prio_code,
-    ]])
+    ]], dtype=np.float32)
 
     # Apply the real StandardScaler from productivity_artifacts.pkl
     if _prod_scaler is not None:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            raw = _prod_scaler.transform(raw)
+            raw = _prod_scaler.transform(raw).astype(np.float32)  # Ensure float32 after scaler
     elif scaler_mean is not None and scaler_scale is not None:
         # Legacy fallback
-        raw = (raw - scaler_mean) / np.where(scaler_scale == 0, 1.0, scaler_scale)
+        raw = ((raw - scaler_mean) / np.where(scaler_scale == 0, 1.0, scaler_scale)).astype(np.float32)
 
+    # Validate shape and dtype
+    assert raw.shape == (1, 9), f"Expected shape (1, 9), got {raw.shape}"
+    assert raw.dtype == np.float32, f"Expected dtype float32, got {raw.dtype}"
+    
+    # Log to terminal for visibility
+    print(f"[BUILD_PRODUCTIVITY_FEATURES] Shape: {raw.shape}, dtype: {raw.dtype}", file=sys.stderr)
+    print(f"[BUILD_PRODUCTIVITY_FEATURES] Values: {raw[0]}", file=sys.stderr)
+    
     return raw
 
 
@@ -315,6 +334,11 @@ def build_productivity_features(
 def build_quality_features(item_data: dict, sprint_context: dict) -> np.ndarray:
     """
     6 features for TabNet quality classifier — MIN-MAX NORMALISED to [0,1].
+    
+    CRITICAL: Returns (1, 6) 2D array with dtype=np.float32 for TabNet inference.
+    TabNet is strict about:
+      1. Array shape MUST be (batch_size, n_features) — (1, 6) for single sample
+      2. dtype MUST be np.float32 — NOT float64 (PyTorch default precision)
 
     All 6 running_mean values from encoder.initial_bn confirmed:
       [0.1413, 0.0062, 0.0148, 0.7096, 0.1693, 0.1170]
@@ -346,7 +370,8 @@ def build_quality_features(item_data: dict, sprint_context: dict) -> np.ndarray:
     days_norm       = min(days_remaining / 14.0, 1.0)
     sp_norm         = min(max((story_points - 1.0) / 12.0, 0.0), 1.0)
 
-    return np.array([[
+    # CRITICAL: dtype=np.float32 (NOT float64) and 2D shape (1, 6)
+    X = np.array([[
         prio_norm,       # [0] prio_code/4
         desc_complexity, # [1] desc length/500
         pressure_norm,   # [2] sp/(days*14)
@@ -354,6 +379,16 @@ def build_quality_features(item_data: dict, sprint_context: dict) -> np.ndarray:
         sp_norm,         # [4] (sp-1)/12
         sprint_progress, # [5] raw 0-1
     ]], dtype=np.float32)
+    
+    # Validate shape and dtype before returning
+    assert X.shape == (1, 6), f"Expected shape (1, 6), got {X.shape}"
+    assert X.dtype == np.float32, f"Expected dtype float32, got {X.dtype}"
+    
+    # Log to terminal for visibility
+    print(f"[BUILD_QUALITY_FEATURES] Shape: {X.shape}, dtype: {X.dtype}", file=sys.stderr)
+    print(f"[BUILD_QUALITY_FEATURES] Values: {X[0]}", file=sys.stderr)
+    
+    return X
 
 
 # ══════════════════════════════════════════════════════════════════════════════

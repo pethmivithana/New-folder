@@ -6,6 +6,7 @@ Productivity uses a hybrid XGBoost + MLP ensemble (averaged output).
 """
 
 import io
+import traceback
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
@@ -151,6 +152,7 @@ class ImpactPredictor:
         sprint_context: dict,
         existing_items=None,
         focus_hours_per_day: float = _DEFAULT_FOCUS_HOURS,
+        risk_appetite: str = "Standard",
     ) -> dict:
         ctx = self._enrich_context(sprint_context)
 
@@ -158,7 +160,7 @@ class ImpactPredictor:
         schedule    = self._predict_schedule_risk(item_data, ctx)
         quality     = self._predict_quality_risk(item_data, ctx)
         productivity= self._predict_productivity(item_data, ctx)
-        summary     = self._generate_summary(effort, schedule, quality, productivity)
+        summary     = self._generate_summary(effort, schedule, quality, productivity, risk_appetite)
         display     = generate_display_metrics(
                           effort, schedule, productivity, quality,
                           ctx, focus_hours_per_day)
@@ -231,7 +233,9 @@ class ImpactPredictor:
                 'explanation':     f"Predicted {median:.1f}h vs {hours_remaining:.0f}h remaining.",
             }
         except Exception as e:
-            print(f"Effort prediction error: {e}")
+            print(f"\n[EFFORT PREDICTION ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Features attempted: {feat_dict}\n")
             return self._fallback_effort(item_data, sprint_context, focus_hours_per_day)
 
     # ── 2. Schedule risk ──────────────────────────────────────────────────────
@@ -261,7 +265,10 @@ class ImpactPredictor:
                 'explanation':   f"'{dominant_label}'. {spillover_prob:.0f}% spillover probability.",
             }
         except Exception as e:
-            print(f"Schedule risk error: {e}")
+            print(f"\n[SCHEDULE RISK ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Feature array shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+            print(f"[DEBUG] Feature dtype: {X.dtype if hasattr(X, 'dtype') else 'unknown'}\n")
             return self._fallback_schedule_risk(item_data, sprint_context)
 
     # ── 3. Quality risk ───────────────────────────────────────────────────────
@@ -270,10 +277,22 @@ class ImpactPredictor:
             X     = build_quality_features(item_data, sprint_context)
             model = self.models.get('quality_risk')
             if model is None:
+                print("[QUALITY RISK] Model not loaded from model_loader")
                 return self._fallback_quality_risk()
+
+            # ── Debug: log array properties before inference ──────────────────
+            print(f"\n[QUALITY RISK] Input array shape: {X.shape}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Input array dtype: {X.dtype}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Input array values: {X}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Model type: {type(model)}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Calling predict_proba()...", file=__import__('sys').stderr)
 
             proba      = model.predict_proba(X)[0]
             defect_pct = _cap(float(proba[1]) * 100)
+
+            print(f"[QUALITY RISK] Proba output shape: {proba.shape}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Proba values: {proba}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Defect %: {defect_pct}\n", file=__import__('sys').stderr)
 
             if defect_pct > 60:
                 status, label = 'critical', 'High Bug Risk'
@@ -289,7 +308,10 @@ class ImpactPredictor:
                 'explanation':  f"{defect_pct:.0f}% defect likelihood.",
             }
         except Exception as e:
-            print(f"Quality risk error: {e}")
+            print(f"\n[QUALITY RISK ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Feature array shape: {X.shape if 'X' in locals() and hasattr(X, 'shape') else 'unknown'}")
+            print(f"[DEBUG] Feature dtype: {X.dtype if 'X' in locals() and hasattr(X, 'dtype') else 'unknown'}\n")
             return self._fallback_quality_risk()
 
     # ── 4. Productivity — hybrid XGBoost + MLP ensemble ───────────────────────
@@ -349,11 +371,33 @@ class ImpactPredictor:
                 ),
             }
         except Exception as e:
-            print(f"Productivity error: {e}")
+            print(f"\n[PRODUCTIVITY ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Feature array shape: {X.shape if 'X' in locals() and hasattr(X, 'shape') else 'unknown'}")
+            print(f"[DEBUG] Feature dtype: {X.dtype if 'X' in locals() and hasattr(X, 'dtype') else 'unknown'}")
+            if 'preds' in locals():
+                print(f"[DEBUG] Predictions collected: {preds}")
+            print(f"[DEBUG] XGBoost available: {XGBOOST_AVAILABLE}, MLP available: {TORCH_AVAILABLE}\n")
             return self._fallback_productivity(sprint_context)
 
     # ── summary scorer ────────────────────────────────────────────────────────
-    def _generate_summary(self, effort, schedule, quality, productivity) -> dict:
+    def _generate_summary(self, effort, schedule, quality, productivity, risk_appetite: str = "Standard") -> dict:
+        """
+        Generate risk summary with thresholds adjusted by risk appetite.
+        Strict: More conservative (DEFER score=5), Standard: Balanced (score=7), Lenient: Permissive (score=9)
+        """
+        # Risk appetite thresholds for recommendation scores
+        thresholds = {
+            "Strict": {"defer": 5, "swap": 3, "split": 1},
+            "Standard": {"defer": 7, "swap": 4, "split": 2},
+            "Lenient": {"defer": 9, "swap": 6, "split": 3},
+        }
+        
+        thresh = thresholds.get(risk_appetite, thresholds["Standard"])
+        defer_threshold = thresh["defer"]
+        swap_threshold = thresh["swap"]
+        split_threshold = thresh["split"]
+        
         score = 0
         if effort['status']     == 'critical': score += 3
         elif effort['status']   == 'warning':  score += 2
@@ -364,10 +408,14 @@ class ImpactPredictor:
         if productivity.get('drop_pct', abs(productivity.get('velocity_change', 0))) > 30: score += 2
         elif productivity.get('drop_pct', abs(productivity.get('velocity_change', 0))) > 10: score += 1
 
-        if score >= 7:   return {'risk_score': score, 'overall_risk': 'critical', 'recommendation': 'DEFER'}
-        elif score >= 4: return {'risk_score': score, 'overall_risk': 'high',     'recommendation': 'SWAP'}
-        elif score >= 2: return {'risk_score': score, 'overall_risk': 'medium',   'recommendation': 'SPLIT'}
-        else:            return {'risk_score': score, 'overall_risk': 'low',      'recommendation': 'ADD'}
+        if score >= defer_threshold:
+            return {'risk_score': score, 'overall_risk': 'critical', 'recommendation': 'DEFER', 'risk_appetite': risk_appetite}
+        elif score >= swap_threshold:
+            return {'risk_score': score, 'overall_risk': 'high',     'recommendation': 'SWAP', 'risk_appetite': risk_appetite}
+        elif score >= split_threshold:
+            return {'risk_score': score, 'overall_risk': 'medium',   'recommendation': 'SPLIT', 'risk_appetite': risk_appetite}
+        else:
+            return {'risk_score': score, 'overall_risk': 'low',      'recommendation': 'ADD', 'risk_appetite': risk_appetite}
 
     # ── fallbacks ─────────────────────────────────────────────────────────────
     def _fallback_effort(self, item_data, sprint_context,

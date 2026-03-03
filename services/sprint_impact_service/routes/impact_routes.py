@@ -7,10 +7,81 @@ from pymongo import DESCENDING
 
 from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint
 from impact_predictor import impact_predictor
-from recommendation_engine import recommendation_engine
+from recommendation_engine import RecommendationEngine
 from explanation_generator import explanation_generator
 
 router = APIRouter()
+
+
+async def calculate_dynamic_focus_hours(space_id: str, fallback: float = 6.0) -> float:
+    """
+    Calculate focus hours per day dynamically based on the team's previous sprint.
+    
+    Formula: (Assignees * Days * 8 hours) / Completed SP = hours per story point
+    Then: focus_hours_per_day = team_velocity (SP per day) * hours_per_sp
+    
+    If no previous sprint exists, return fallback (6.0).
+    """
+    try:
+        db = get_database()
+        
+        # Find the most recently COMPLETED sprint for this space
+        completed_sprint = await db.sprints.find_one(
+            {"space_id": space_id, "status": "Completed"},
+            sort=[("updated_at", DESCENDING)]
+        )
+        
+        if not completed_sprint:
+            return fallback
+        
+        # Get start/end dates
+        start_date = completed_sprint.get("start_date")
+        end_date = completed_sprint.get("end_date")
+        
+        if not start_date or not end_date:
+            return fallback
+        
+        # Calculate duration in days
+        if isinstance(start_date, str):
+            start_date = datetime.strptime(start_date, "%Y-%m-%d")
+        if isinstance(end_date, str):
+            end_date = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        sprint_duration_days = max(1, (end_date - start_date).days)
+        
+        # Get all completed items from this sprint
+        completed_items = await db.backlog_items.find(
+            {
+                "sprint_id": completed_sprint["_id"],
+                "status": "Done"
+            }
+        ).to_list(length=None)
+        
+        completed_sp = sum(item.get("story_points", 0) for item in completed_items)
+        
+        if completed_sp == 0:
+            return fallback
+        
+        # Get number of assignees
+        num_assignees = len(completed_sprint.get("assignees", [])) or 1
+        
+        # Calculate hours per story point
+        # (Assignees * Days * 8 hours) / Completed SP
+        hours_per_sp = (num_assignees * sprint_duration_days * 8) / completed_sp
+        
+        # Daily focus capacity per developer
+        # This is the hours per SP * average SP completed per day
+        daily_sp = completed_sp / sprint_duration_days
+        dynamic_focus_hours = daily_sp * hours_per_sp / num_assignees
+        
+        # Cap between 2.0 and 10.0 hours per day (reasonable bounds)
+        dynamic_focus_hours = max(2.0, min(10.0, dynamic_focus_hours))
+        
+        return round(dynamic_focus_hours, 1)
+    
+    except Exception as e:
+        print(f"Error calculating dynamic focus hours: {e}")
+        return fallback
 
 
 class AnalyzeRequest(BaseModel):
@@ -157,7 +228,7 @@ async def analyze_impact(body: AnalyzeRequest):
     existing_items = await get_backlog_items_by_sprint(body.sprint_id)
     sprint_context = _build_sprint_context(sprint, existing_items)
 
-    # 2. Fetch space to get focus_hours_per_day and risk_appetite
+    # 2. Fetch space to get risk_appetite, then calculate dynamic focus hours
     focus_hours_per_day = 6.0
     risk_appetite = "Standard"
     space_id = sprint.get("space_id", "")
@@ -166,9 +237,14 @@ async def analyze_impact(body: AnalyzeRequest):
             db    = get_database()
             space = await db.spaces.find_one({"_id": ObjectId(space_id)}) if ObjectId.is_valid(space_id) else None
             if space:
-                focus_hours_per_day = float(space.get("focus_hours_per_day", 6.0))
                 risk_appetite = space.get("risk_appetite", "Standard")
-        except Exception:
+                # Calculate dynamic focus hours from previous sprint
+                focus_hours_per_day = await calculate_dynamic_focus_hours(
+                    space_id,
+                    fallback=float(space.get("focus_hours_per_day", 6.0))
+                )
+        except Exception as e:
+            print(f"Error fetching space settings: {e}")
             pass  # fall back to defaults if lookup fails
 
     item_data = {
@@ -181,11 +257,12 @@ async def analyze_impact(body: AnalyzeRequest):
         "sprint_id":    body.sprint_id,
     }
 
-    # 3. ML predictions — pass focus_hours_per_day into the predictor
+    # 3. ML predictions — pass focus_hours_per_day and risk_appetite into the predictor
     try:
         ml_result = impact_predictor.predict_all_impacts(
             item_data, sprint_context, existing_items,
             focus_hours_per_day=focus_hours_per_day,
+            risk_appetite=risk_appetite,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"ML prediction failed: {exc}")
@@ -200,7 +277,7 @@ async def analyze_impact(body: AnalyzeRequest):
 
     # 4. Recommendation + explanation
     # Create engine instance with space's risk_appetite setting
-    engine = recommendation_engine.RecommendationEngine(risk_appetite=risk_appetite)
+    engine = RecommendationEngine(risk_appetite=risk_appetite)
     recommendation = engine.generate_recommendation(
         new_ticket     = item_data,
         sprint_context = sprint_context,

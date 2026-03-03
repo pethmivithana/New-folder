@@ -216,6 +216,11 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [loading,       setLoading]       = useState(false);
   const [sprintContext, setSprintContext]  = useState(null);
   const [actionResult,  setActionResult]  = useState(null);
+  const [suggestingPoints, setSuggestingPoints] = useState(false);
+  const [goalAlignment, setGoalAlignment] = useState(null);
+  const [checkingAlignment, setCheckingAlignment] = useState(false);
+  const [showManualOverride, setShowManualOverride] = useState(false);
+  const [manualAlignment, setManualAlignment] = useState(null);
 
   // Auto-select active sprint on load
   useEffect(() => {
@@ -242,6 +247,57 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
     setAnalysis(null);
     setActionResult(null);
     if (sprint) loadSprintContext(sprint.id);
+  };
+
+  const handleSuggestPoints = async () => {
+    if (!formData.title.trim()) {
+      alert('Please enter a title first');
+      return;
+    }
+    
+    setSuggestingPoints(true);
+    try {
+      const result = await api.predictStoryPoints({
+        title: formData.title,
+        description: formData.description,
+      });
+      // Use median suggestion or suggested_points
+      const suggestedValue = result.suggested_points || result.median || 5;
+      setFormData({ ...formData, story_points: suggestedValue });
+    } catch (err) {
+      console.error('Failed to suggest points:', err);
+      alert('Could not suggest points: ' + err.message);
+    } finally {
+      setSuggestingPoints(false);
+    }
+  };
+
+  const handleCheckGoalAlignment = async () => {
+    if (!selectedSprint || !formData.title.trim()) {
+      alert('Please select a sprint and enter a title');
+      return;
+    }
+
+    setCheckingAlignment(true);
+    try {
+      const result = await api.analyzeSprintGoalAlignment({
+        sprint_goal: selectedSprint.goal || 'No goal specified',
+        requirement_title: formData.title,
+        requirement_description: formData.description,
+        requirement_priority: formData.priority,
+        requirement_epic: null,
+        sprint_epic: null,
+        requirement_components: [],
+        sprint_components: [],
+      });
+      setGoalAlignment(result);
+      setManualAlignment(null);
+    } catch (err) {
+      console.error('Failed to check alignment:', err);
+      alert('Failed to check alignment: ' + err.message);
+    } finally {
+      setCheckingAlignment(false);
+    }
   };
 
   const handleAnalyze = async () => {
@@ -362,9 +418,21 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Story Points</label>
-              <input type="number" min="1" max="21" value={formData.story_points}
-                onChange={e => setFormData({ ...formData, story_points: parseInt(e.target.value) || 5 })}
-                className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+              <div className="flex gap-2">
+                <input type="number" min="1" max="21" value={formData.story_points}
+                  onChange={e => setFormData({ ...formData, story_points: parseInt(e.target.value) || 5 })}
+                  className="flex-1 bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                <button
+                  onClick={handleSuggestPoints}
+                  disabled={suggestingPoints}
+                  className="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-medium rounded-lg text-sm flex items-center gap-1 disabled:opacity-50 whitespace-nowrap transition-colors">
+                  {suggestingPoints ? (
+                    <><div className="animate-spin h-4 w-4 border-2 border-indigo-700 border-t-transparent rounded-full" /></>
+                  ) : (
+                    <>✨ Suggest</>
+                  )}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
@@ -383,6 +451,16 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
               <option>Task</option><option>Story</option><option>Bug</option><option>Subtask</option>
             </select>
           </div>
+
+          {/* Goal Alignment Check */}
+          <button onClick={handleCheckGoalAlignment} disabled={checkingAlignment || !selectedSprint}
+            className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-6 py-2 rounded-lg hover:opacity-90 font-medium disabled:opacity-50 flex items-center justify-center gap-2 mb-2 text-sm">
+            {checkingAlignment
+              ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" /> Checking…</>
+              : (<><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg> Check Sprint Goal Alignment</>)}
+          </button>
 
           {/* Analyze button */}
           <button onClick={handleAnalyze} disabled={loading || !selectedSprint}
@@ -419,6 +497,73 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4" />
             <p className="text-gray-600 font-medium">Running ML models…</p>
             <p className="text-gray-400 text-sm mt-1">Effort · Schedule · Quality · Productivity</p>
+          </div>
+        )}
+
+        {/* Goal Alignment Results */}
+        {goalAlignment && (
+          <div className={`rounded-xl shadow-sm p-6 border-l-4 ${
+            goalAlignment.final_recommendation === 'ACCEPT' ? 'bg-green-50 border-green-500' :
+            goalAlignment.final_recommendation === 'CONSIDER' ? 'bg-blue-50 border-blue-500' :
+            goalAlignment.final_recommendation === 'EVALUATE' ? 'bg-amber-50 border-amber-500' :
+            'bg-red-50 border-red-500'
+          }`}>
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">Sprint Goal Alignment</h3>
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                goalAlignment.final_recommendation === 'ACCEPT' ? 'bg-green-200 text-green-800' :
+                goalAlignment.final_recommendation === 'CONSIDER' ? 'bg-blue-200 text-blue-800' :
+                goalAlignment.final_recommendation === 'EVALUATE' ? 'bg-amber-200 text-amber-800' :
+                'bg-red-200 text-red-800'
+              }`}>
+                {goalAlignment.final_recommendation}
+              </span>
+            </div>
+
+            <p className="text-gray-700 mb-4">{goalAlignment.recommendation_reason}</p>
+
+            <div className="space-y-3 mb-4 text-sm">
+              <div className="bg-white bg-opacity-50 rounded p-3">
+                <div className="font-semibold text-gray-700 mb-1">Analysis</div>
+                <div className="text-gray-600">
+                  {goalAlignment.semantic_analysis.alignment_category}: {goalAlignment.semantic_analysis.reasoning}
+                </div>
+              </div>
+              <div className="bg-white bg-opacity-50 rounded p-3">
+                <div className="font-semibold text-gray-700 mb-1">Next Steps</div>
+                <div className="text-gray-600">{goalAlignment.next_steps}</div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setGoalAlignment(null); setShowManualOverride(false); }}
+                className="flex-1 px-3 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors">
+                Clear
+              </button>
+              <button
+                onClick={() => setShowManualOverride(!showManualOverride)}
+                className="flex-1 px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 font-medium text-sm transition-colors">
+                {showManualOverride ? 'Hide Manual' : 'Manual Override'}
+              </button>
+            </div>
+
+            {showManualOverride && (
+              <div className="mt-4 pt-4 border-t border-gray-300">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Override Recommendation</label>
+                <select value={manualAlignment || goalAlignment.final_recommendation}
+                  onChange={e => setManualAlignment(e.target.value)}
+                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="ACCEPT">ACCEPT - Add to Sprint</option>
+                  <option value="CONSIDER">CONSIDER - Discuss in Team</option>
+                  <option value="EVALUATE">EVALUATE - Careful Review</option>
+                  <option value="DEFER">DEFER - Save for Later</option>
+                </select>
+                <p className="text-xs text-gray-600 mt-2">
+                  Reason for override: {manualAlignment ? `User selected ${manualAlignment}` : 'Not specified'}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
