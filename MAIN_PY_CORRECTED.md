@@ -1,3 +1,8 @@
+# Fixed main.py - CORS Configuration
+
+## Complete Corrected File
+
+```python
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -85,3 +90,30 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+## What Changed
+
+1. **Added explicit ALLOWED_ORIGINS list** - Includes all common development ports (3000, 5173, 8000)
+2. **Explicit allow_methods** - Changed from `["*"]` to explicit methods including OPTIONS for preflight
+3. **Added max_age=3600** - Caches CORS preflight responses for 1 hour to reduce overhead
+4. **Simplified expose_headers** - Removed unnecessary headers that FastAPI includes by default
+5. **CORS middleware positioned correctly** - Added immediately after app creation but BEFORE route inclusion
+
+## Testing
+
+After updating, restart the backend:
+```bash
+python main.py
+```
+
+Then check CORS is working:
+```bash
+curl -H "Origin: http://localhost:5173" \
+     -H "Access-Control-Request-Method: POST" \
+     -H "Access-Control-Request-Headers: Content-Type" \
+     -X OPTIONS \
+     http://localhost:8000/api/spaces/
+```
+
+Should return 200 OK with proper Access-Control headers.
