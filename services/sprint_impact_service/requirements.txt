@@ -16,4 +16,6 @@ pytorch-tabnet
 # pip install -r requirements.txt
 # To run the service: python main.py
 
+#cd services/sprint_impact_service
 #venv\Scripts\activate
+#python main.py
