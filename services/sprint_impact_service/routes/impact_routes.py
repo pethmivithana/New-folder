@@ -7,7 +7,7 @@ from pymongo import DESCENDING
 
 from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint
 from impact_predictor import impact_predictor
-from recommendation_engine import recommendation_engine
+from recommendation_engine import RecommendationEngine
 from explanation_generator import explanation_generator
 
 router = APIRouter()
@@ -200,7 +200,7 @@ async def analyze_impact(body: AnalyzeRequest):
 
     # 4. Recommendation + explanation
     # Create engine instance with space's risk_appetite setting
-    engine = recommendation_engine.RecommendationEngine(risk_appetite=risk_appetite)
+    engine = RecommendationEngine(risk_appetite=risk_appetite)
     recommendation = engine.generate_recommendation(
         new_ticket     = item_data,
         sprint_context = sprint_context,
