@@ -348,4 +348,4 @@ class RecommendationEngine:
         }
 
 
-recommendation_engine = RecommendationEngine()
+# Note: RecommendationEngine is instantiated per-request in routes with risk_appetite parameter
