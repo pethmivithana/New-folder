@@ -24,6 +24,8 @@ import pickle
 import shutil
 import warnings
 import zipfile
+import traceback
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -178,10 +180,13 @@ class ModelLoader:
 
             self.models['quality_risk'] = clf
             print("✓ quality_risk")
+            print(f"  [TabNet] Network structure: {clf.network}", file=sys.stderr)
             return 1
 
         except Exception as e:
             print(f"✗ quality_risk: {e}")
+            print(f"  [ERROR DETAILS]", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             return 0
 
     # ── 4. Productivity — XGBoost + MLP hybrid ────────────────────────────────

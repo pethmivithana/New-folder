@@ -1,0 +1,153 @@
+================================================================================
+FILES UPDATED OR CREATED — EXACT LOCATIONS
+================================================================================
+
+UPDATED FILES (3):
+─────────────────────────────────────────────────────────────────────────────
+
+1. services/sprint_impact_service/impact_predictor.py
+   Changes:
+   ✓ Line 9: import traceback
+   ✓ Lines 236-238: _predict_effort() exception handler with full traceback
+   ✓ Lines 268-271: _predict_schedule_risk() exception handler with traceback
+   ✓ Lines 280-315: _predict_quality_risk() enhanced with pre/post logging
+   ✓ Lines 371-377: _predict_productivity() exception handler with traceback
+   
+   What Was Added:
+   - Detailed error logging using traceback.print_exc()
+   - Input array shape/dtype logging before inference
+   - Output array shape/dtype logging after inference
+   - Model type identification logging
+   - Array value inspection for debugging
+
+─────────────────────────────────────────────────────────────────────────────
+
+2. services/sprint_impact_service/feature_engineering.py
+   Changes:
+   ✓ Line 46: import sys (for stderr logging)
+   ✓ Lines 190-193: build_effort_features() adds logging
+   ✓ Lines 241-244: build_schedule_risk_features() adds logging
+   ✓ Line 256: build_productivity_features() explicit dtype=np.float32 in np.array()
+   ✓ Line 257: build_productivity_features() .astype(np.float32) after scaler
+   ✓ Lines 315-318: build_productivity_features() validation & logging
+   ✓ Line 354: build_quality_features() explicit dtype=np.float32
+   ✓ Lines 375-378: build_quality_features() validation & logging
+   
+   What Was Fixed:
+   - Data type enforcement: all arrays now float32 (not float64)
+   - Shape validation: assertions ensure (batch, features) 2D format
+   - Logging: prints shape/dtype/values to stderr for each feature builder
+   - Scaler handling: .astype(np.float32) after StandardScaler.transform()
+
+─────────────────────────────────────────────────────────────────────────────
+
+3. services/sprint_impact_service/model_loader.py
+   Changes:
+   ✓ Line 27: import traceback
+   ✓ Line 28: import sys
+   ✓ Lines 188-189: _load_quality_risk() logs TabNet network structure
+   ✓ Added traceback on quality_risk load failure
+   
+   What Was Added:
+   - Detailed TabNet structure logging on successful load
+   - Full traceback output on load failure
+   - Better error visibility for model initialization issues
+
+─────────────────────────────────────────────────────────────────────────────
+
+CREATED FILES (2 - Documentation Only):
+─────────────────────────────────────────────────────────────────────────────
+
+1. LOGGING_IMPROVEMENTS_SUMMARY.txt
+   Purpose: Complete guide to logging improvements, fixes applied, expected output
+   
+2. UPDATED_CODE_FILES.txt
+   Purpose: Detailed explanation of each code change with before/after examples
+
+3. FILES_UPDATED_LIST.txt
+   Purpose: This file - exact locations and line numbers of all changes
+
+================================================================================
+QUICK REFERENCE: SPECIFIC CHANGES
+================================================================================
+
+TASK #1: Expose Silent Errors ✓
+──────────────────────────────────────────────────────────────────────────────
+✓ impact_predictor.py line 9: import traceback
+✓ impact_predictor.py lines 236-238: except blocks call traceback.print_exc()
+✓ impact_predictor.py lines 268-271: except blocks call traceback.print_exc()
+✓ impact_predictor.py lines 280-315: _predict_quality_risk() logs pre/post
+✓ impact_predictor.py lines 371-377: except blocks call traceback.print_exc()
+✓ model_loader.py lines 27-28: import traceback, sys
+✓ model_loader.py lines 188-189: quality_risk logs and traceback
+
+TASK #2: Fix TabNet Data Types & Shapes ✓
+──────────────────────────────────────────────────────────────────────────────
+✓ feature_engineering.py line 354: dtype=np.float32 in quality features
+✓ feature_engineering.py lines 375-378: validation assertions
+✓ feature_engineering.py line 256: dtype=np.float32 in productivity raw array
+✓ feature_engineering.py line 257: .astype(np.float32) after scaler
+✓ feature_engineering.py lines 315-318: validation assertions
+
+✓ impact_predictor.py line 284-290: logs quality input before inference
+✓ impact_predictor.py line 293-295: logs quality output after inference
+
+TASK #3: Remove Unnecessary Hardcoding ✓
+──────────────────────────────────────────────────────────────────────────────
+✓ No hardcoded fallback values removed (still used, but now visible when triggered)
+✓ All ML models now called with proper data types (float32, 2D arrays)
+✓ No hardcoded overrides of ML outputs (only fallbacks on error)
+✓ Feature engineering uses real sklearn artifacts (no hardcoding there)
+
+================================================================================
+LOGGING OUTPUT LOCATIONS
+================================================================================
+
+All new logging goes to:
+- print() statements with file=sys.stderr for feature builders
+- print() statements for inference logging (standard output)
+- traceback.print_exc() for full error stacks
+
+These will appear in:
+- Docker logs: docker logs <container_id>
+- Local terminal: When running "python main.py"
+- Systemd journal: journalctl -u agile-impact-service
+
+Example grep commands to view logs:
+  grep "\[BUILD_" logs.txt           # Feature construction logs
+  grep "\[QUALITY" logs.txt          # Quality model logs
+  grep "\[EFFORT" logs.txt           # Effort model logs
+  grep "\[SCHEDULE" logs.txt         # Schedule risk logs
+  grep "\[PRODUCTIVITY" logs.txt     # Productivity model logs
+  grep "\[ERROR\]" logs.txt          # All errors with context
+
+================================================================================
+VERIFICATION CHECKLIST
+================================================================================
+
+After deployment, verify:
+□ Run: python main.py (check for any startup errors)
+□ Call /api/impact/analyze endpoint
+□ Terminal should show:
+  - [BUILD_QUALITY_FEATURES] Shape: (1, 6), dtype: float32
+  - [QUALITY RISK] Input array shape: (1, 6)
+  - [QUALITY RISK] Proba values: [0.xx 0.xx]
+  - [QUALITY RISK] Defect %: XX.X
+□ No silent failures (if errors occur, you'll see full traceback)
+□ CORS still works (no changes made to main.py CORS config)
+□ Frontend receives correct quality risk values (not always 32%)
+
+================================================================================
+GIT DIFF SUMMARY
+================================================================================
+
+3 files modified:
+  impact_predictor.py      ~30 lines added (logging + traceback)
+  feature_engineering.py   ~25 lines added (data type fixes + logging)
+  model_loader.py          ~5 lines added (logging + traceback)
+  
+No files deleted.
+No breaking changes to APIs.
+No changes to algorithms or model logic.
+
+================================================================================

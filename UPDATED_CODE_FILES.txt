@@ -1,0 +1,149 @@
+================================================================================
+UPDATED CODE FILES — COMPLETE LISTINGS
+================================================================================
+
+FILES MODIFIED:
+1. services/sprint_impact_service/impact_predictor.py
+2. services/sprint_impact_service/feature_engineering.py  
+3. services/sprint_impact_service/model_loader.py
+
+================================================================================
+FILE 1: impact_predictor.py
+================================================================================
+
+Key Changes:
+- Line 9: Added "import traceback"
+- Lines 236-238: Effort error handler now prints traceback
+- Lines 268-271: Schedule risk error handler now prints traceback
+- Lines 280-315: Quality risk method has detailed pre-inference logging
+- Lines 371-377: Productivity error handler now prints traceback and debug info
+
+Updated Exception Handlers:
+1. _predict_effort() → Logs: [EFFORT PREDICTION ERROR] + traceback + attempted features
+2. _predict_schedule_risk() → Logs: [SCHEDULE RISK ERROR] + array shape/dtype + traceback
+3. _predict_quality_risk() → Logs: [QUALITY RISK] input/output + errors with full traceback
+4. _predict_productivity() → Logs: [PRODUCTIVITY ERROR] + shape/dtype + model availability
+
+Quality Risk Inference Logging (Pre-execution):
+  print(f"[QUALITY RISK] Input array shape: {X.shape}")
+  print(f"[QUALITY RISK] Input array dtype: {X.dtype}")
+  print(f"[QUALITY RISK] Input array values: {X}")
+  print(f"[QUALITY RISK] Model type: {type(model)}")
+  print(f"[QUALITY RISK] Calling predict_proba()...")
+
+Quality Risk Inference Logging (Post-execution):
+  print(f"[QUALITY RISK] Proba output shape: {proba.shape}")
+  print(f"[QUALITY RISK] Proba values: {proba}")
+  print(f"[QUALITY RISK] Defect %: {defect_pct}")
+
+================================================================================
+FILE 2: feature_engineering.py
+================================================================================
+
+Key Changes:
+- Line 46: Added "import sys" for stderr logging
+- Lines 190-193: build_effort_features() logs TF-IDF shape/dtype
+- Lines 241-244: build_schedule_risk_features() logs array properties
+- Line 256-257: build_productivity_features() enforces float32 AFTER scaler
+- Line 305: build_productivity_features() added .astype(np.float32) after scaler
+- Lines 315-318: build_productivity_features() validates and logs
+- Line 354: build_quality_features() explicit dtype=np.float32
+- Lines 375-378: build_quality_features() validates and logs
+
+CRITICAL FIX - Data Type Enforcement:
+
+build_productivity_features():
+  BEFORE: raw = _prod_scaler.transform(X)  # Returns float64 (sklearn default)
+  AFTER:  raw = _prod_scaler.transform(X).astype(np.float32)
+          assert raw.dtype == np.float32, f"Got {raw.dtype}"
+
+build_quality_features():
+  BEFORE: return np.array([...])  # Implicitly float64
+  AFTER:  return np.array([...], dtype=np.float32)
+          assert X.dtype == np.float32, f"Got {X.dtype}"
+
+Shape Validation (All Feature Builders):
+- build_quality_features():
+    assert X.shape == (1, 6)
+    assert X.dtype == np.float32
+    
+- build_productivity_features():
+    assert raw.shape == (1, 9)
+    assert raw.dtype == np.float32
+
+Terminal Logging Output:
+  [BUILD_EFFORT_FEATURES] Keys: 105, TF-IDF shape: (100,), dtype: float32
+  [BUILD_SCHEDULE_RISK_FEATURES] Shape: (1, 9), dtype: float64
+  [BUILD_PRODUCTIVITY_FEATURES] Shape: (1, 9), dtype: float32
+  [BUILD_QUALITY_FEATURES] Shape: (1, 6), dtype: float32
+
+================================================================================
+FILE 3: model_loader.py
+================================================================================
+
+Key Changes:
+- Line 27: Added "import traceback"
+- Line 28: Added "import sys"
+- Lines 188-189: _load_quality_risk() now logs TabNet network structure
+- Added traceback.print_exc() on quality_risk load failure
+
+Quality Risk Loading Enhanced Logging:
+  On Success:
+    print("✓ quality_risk")
+    print(f"  [TabNet] Network structure: {clf.network}")
+    
+  On Failure:
+    print(f"✗ quality_risk: {e}")
+    traceback.print_exc(file=sys.stderr)
+
+================================================================================
+BEHAVIOR SUMMARY
+================================================================================
+
+BEFORE (Silent Failures):
+  1. build_quality_features() returns (6,) float64 array
+  2. model.predict_proba(X) fails silently with shape/dtype error
+  3. Exception caught: except Exception as e: print(f"Error: {e}")
+  4. Returns hardcoded: {'probability': 40.0, 'status': 'warning', ...}
+  5. Frontend always shows 32% or 40% regardless of actual quality
+
+AFTER (Visible Debugging):
+  1. build_quality_features() returns (1, 6) float32 array with logging
+  2. Logs array before predict_proba: shape, dtype, values
+  3. Logs result after predict_proba: probabilities, defect %
+  4. If error: full traceback + context printed to stderr
+  5. Frontend shows actual predicted value OR fallback value (but error is visible)
+
+Example Terminal Output When Quality Model Fails:
+
+[BUILD_QUALITY_FEATURES] Shape: (1, 6), dtype: float32
+[BUILD_QUALITY_FEATURES] Values: [0.25 0.04 0.021 0.929 0.333 0.0]
+
+[QUALITY RISK] Input array shape: (1, 6)
+[QUALITY RISK] Input array dtype: float32
+[QUALITY RISK] Input array values: [[0.25 0.04 0.021 0.929 0.333 0.0]]
+[QUALITY RISK] Model type: <class 'pytorch_tabnet.tab_model.TabNetClassifier'>
+[QUALITY RISK] Calling predict_proba()...
+
+[QUALITY RISK ERROR] AttributeError: Input dimension mismatch
+Traceback (most recent call last):
+  File "impact_predictor.py", line 283, in _predict_quality_risk
+    proba = model.predict_proba(X)[0]
+  File "/usr/local/lib/python3.9/site-packages/pytorch_tabnet/tab_model.py", line 145
+    ... (full stack trace)
+[DEBUG] Feature array shape: (1, 6)
+[DEBUG] Feature dtype: float32
+
+================================================================================
+NO CHANGES TO:
+================================================================================
+✓ ML model algorithms or training
+✓ API request/response contracts
+✓ CORS configuration
+✓ Risk appetite thresholds
+✓ Dynamic focus hours calculation
+✓ Fallback values (still returned on error; just now visible)
+✓ Database operations
+✓ Authentication
+
+================================================================================

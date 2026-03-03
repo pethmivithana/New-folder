@@ -6,6 +6,7 @@ Productivity uses a hybrid XGBoost + MLP ensemble (averaged output).
 """
 
 import io
+import traceback
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
@@ -232,7 +233,9 @@ class ImpactPredictor:
                 'explanation':     f"Predicted {median:.1f}h vs {hours_remaining:.0f}h remaining.",
             }
         except Exception as e:
-            print(f"Effort prediction error: {e}")
+            print(f"\n[EFFORT PREDICTION ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Features attempted: {feat_dict}\n")
             return self._fallback_effort(item_data, sprint_context, focus_hours_per_day)
 
     # ── 2. Schedule risk ──────────────────────────────────────────────────────
@@ -262,7 +265,10 @@ class ImpactPredictor:
                 'explanation':   f"'{dominant_label}'. {spillover_prob:.0f}% spillover probability.",
             }
         except Exception as e:
-            print(f"Schedule risk error: {e}")
+            print(f"\n[SCHEDULE RISK ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Feature array shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+            print(f"[DEBUG] Feature dtype: {X.dtype if hasattr(X, 'dtype') else 'unknown'}\n")
             return self._fallback_schedule_risk(item_data, sprint_context)
 
     # ── 3. Quality risk ───────────────────────────────────────────────────────
@@ -271,10 +277,22 @@ class ImpactPredictor:
             X     = build_quality_features(item_data, sprint_context)
             model = self.models.get('quality_risk')
             if model is None:
+                print("[QUALITY RISK] Model not loaded from model_loader")
                 return self._fallback_quality_risk()
+
+            # ── Debug: log array properties before inference ──────────────────
+            print(f"\n[QUALITY RISK] Input array shape: {X.shape}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Input array dtype: {X.dtype}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Input array values: {X}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Model type: {type(model)}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Calling predict_proba()...", file=__import__('sys').stderr)
 
             proba      = model.predict_proba(X)[0]
             defect_pct = _cap(float(proba[1]) * 100)
+
+            print(f"[QUALITY RISK] Proba output shape: {proba.shape}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Proba values: {proba}", file=__import__('sys').stderr)
+            print(f"[QUALITY RISK] Defect %: {defect_pct}\n", file=__import__('sys').stderr)
 
             if defect_pct > 60:
                 status, label = 'critical', 'High Bug Risk'
@@ -290,7 +308,10 @@ class ImpactPredictor:
                 'explanation':  f"{defect_pct:.0f}% defect likelihood.",
             }
         except Exception as e:
-            print(f"Quality risk error: {e}")
+            print(f"\n[QUALITY RISK ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Feature array shape: {X.shape if 'X' in locals() and hasattr(X, 'shape') else 'unknown'}")
+            print(f"[DEBUG] Feature dtype: {X.dtype if 'X' in locals() and hasattr(X, 'dtype') else 'unknown'}\n")
             return self._fallback_quality_risk()
 
     # ── 4. Productivity — hybrid XGBoost + MLP ensemble ───────────────────────
@@ -350,7 +371,13 @@ class ImpactPredictor:
                 ),
             }
         except Exception as e:
-            print(f"Productivity error: {e}")
+            print(f"\n[PRODUCTIVITY ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print(f"[DEBUG] Feature array shape: {X.shape if 'X' in locals() and hasattr(X, 'shape') else 'unknown'}")
+            print(f"[DEBUG] Feature dtype: {X.dtype if 'X' in locals() and hasattr(X, 'dtype') else 'unknown'}")
+            if 'preds' in locals():
+                print(f"[DEBUG] Predictions collected: {preds}")
+            print(f"[DEBUG] XGBoost available: {XGBOOST_AVAILABLE}, MLP available: {TORCH_AVAILABLE}\n")
             return self._fallback_productivity(sprint_context)
 
     # ── summary scorer ────────────────────────────────────────────────────────
