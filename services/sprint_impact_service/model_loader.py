@@ -1,5 +1,5 @@
 """
-model_loader.py  — loads ALL 5 model files + 4 artifact files
+model_loader.py  — loads ALL 5 model files + 4 artifact files + tfidf_vectorizer.pkl
 
 Files consumed
 --------------
@@ -16,6 +16,7 @@ ml_models/
   productivity_artifacts.pkl       {scaler, le_type, le_prio, input_dim}
   le_prio_quality.pkl              LabelEncoder for quality priority
   model_params.json                TabNet init_params + class_attrs
+  tfidf_vectorizer.pkl             Standalone TF-IDF vectorizer for story points & goal alignment
 """
 
 import io
@@ -32,7 +33,6 @@ import numpy as np
 
 warnings.filterwarnings('ignore')
 
-# ── optional deps ─────────────────────────────────────────────────────────────
 try:
     import joblib
     JOBLIB_AVAILABLE = True
@@ -59,7 +59,6 @@ except ImportError:
 
 
 def _joblib_load(path):
-    """Load a pkl file preferring joblib, falling back to pickle."""
     if JOBLIB_AVAILABLE:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -71,11 +70,10 @@ def _joblib_load(path):
 class ModelLoader:
     def __init__(self, models_dir='ml_models'):
         self.models_dir = Path(models_dir)
-        self.models     = {}   # loaded model objects
-        self.artifacts  = {}   # loaded artifact objects (tfidf, le_*, imputer, scaler)
+        self.models     = {}
+        self.artifacts  = {}
         self._temp_dir  = None
 
-    # ══════════════════════════════════════════════════════════════════════════
     def load_all_models(self) -> bool:
         if not self.models_dir.exists():
             print(f"✗ Models directory not found: {self.models_dir}")
@@ -88,16 +86,15 @@ class ModelLoader:
         success += self._load_quality_risk()
         success += self._load_productivity()
 
-        # Artifacts must be loaded AFTER models so label encoders are available
         self._load_effort_artifacts()
         self._load_risk_artifacts()
         self._load_productivity_artifacts()
         self._load_quality_artifacts()
+        self._load_standalone_tfidf()
 
         print(f"\nModels loaded: {success}/4")
         return success > 0
 
-    # ── 1. Effort — 3 × XGBoost quantile regressors ──────────────────────────
     def _load_effort_models(self) -> int:
         if not XGBOOST_AVAILABLE:
             print("✗ effort_*: xgboost not installed")
@@ -113,10 +110,8 @@ class ModelLoader:
                 print(f"✓ effort_{variant}")
             except Exception as e:
                 print(f"✗ effort_{variant}: {e}")
-        # Count as 1 success if all three loaded
         return 1 if loaded == 3 else 0
 
-    # ── 2. Schedule risk — XGBClassifier (multi:softprob, 4 classes) ─────────
     def _load_schedule_risk(self) -> int:
         path = self.models_dir / 'schedule_risk_model.pkl'
         try:
@@ -127,7 +122,6 @@ class ModelLoader:
             print(f"✗ schedule_risk: {e}")
             return 0
 
-    # ── 3. Quality risk — TabNet classifier (binary, 6 features) ─────────────
     def _load_quality_risk(self) -> int:
         if not (TABNET_AVAILABLE and TORCH_AVAILABLE):
             missing = []
@@ -144,7 +138,6 @@ class ModelLoader:
             return 0
 
         try:
-            # ── Read model_params.json (from inside zip or alongside it) ──────
             saved = None
             with zipfile.ZipFile(zip_path) as zf:
                 if 'model_params.json' in zf.namelist():
@@ -157,16 +150,11 @@ class ModelLoader:
             init_params = saved.get('init_params', {})
             class_attrs = saved.get('class_attrs', {})
 
-            # ── Build TabNetClassifier and reconstruct its network ─────────────
-            # TabNetClassifier() after __init__ is a bare Python shell.
-            # .network (the nn.Module) does NOT exist until _set_network() is
-            # called. Calling it here — BEFORE loading weights — is the fix.
             clf = TabNetClassifier(**init_params)
             for k, v in class_attrs.items():
                 setattr(clf, k, v)
-            clf._set_network()   # ← builds clf.network from the init_params
+            clf._set_network()
 
-            # ── Load state_dict from network.pt inside the zip ────────────────
             with zipfile.ZipFile(zip_path) as zf:
                 net_bytes = zf.read('network.pt')
 
@@ -185,15 +173,12 @@ class ModelLoader:
 
         except Exception as e:
             print(f"✗ quality_risk: {e}")
-            print(f"  [ERROR DETAILS]", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             return 0
 
-    # ── 4. Productivity — XGBoost + MLP hybrid ────────────────────────────────
     def _load_productivity(self) -> int:
         loaded = 0
 
-        # 4a. XGBoost component
         if XGBOOST_AVAILABLE:
             path = self.models_dir / 'model_productivity_xgb.json'
             try:
@@ -205,9 +190,6 @@ class ModelLoader:
             except Exception as e:
                 print(f"✗ productivity_xgb: {e}")
 
-        # 4b. MLP neural network component
-        # Architecture (from tensor shapes in model_productivity_nn.pth):
-        #   Sequential(Linear(9,64), ReLU, Dropout, Linear(64,32), ReLU, Linear(32,1))
         if TORCH_AVAILABLE:
             path = self.models_dir / 'model_productivity_nn.pth'
             try:
@@ -217,12 +199,12 @@ class ModelLoader:
                     def __init__(self):
                         super().__init__()
                         self.model = nn.Sequential(
-                            nn.Linear(9, 64),   # model.0  weight=576=64×9
-                            nn.ReLU(),          # model.1
-                            nn.Dropout(0.2),    # model.2
-                            nn.Linear(64, 32),  # model.3  weight=2048=32×64
-                            nn.ReLU(),          # model.4
-                            nn.Linear(32, 1),   # model.5  weight=32=1×32
+                            nn.Linear(9, 64),
+                            nn.ReLU(),
+                            nn.Dropout(0.2),
+                            nn.Linear(64, 32),
+                            nn.ReLU(),
+                            nn.Linear(32, 1),
                         )
                     def forward(self, x):
                         return self.model(x)
@@ -237,25 +219,18 @@ class ModelLoader:
             except Exception as e:
                 print(f"✗ productivity_nn: {e}")
 
-        # Expose unified 'productivity' key pointing to XGBoost (primary model)
         if 'productivity_xgb' in self.models:
             self.models['productivity'] = self.models['productivity_xgb']
 
         return 1 if loaded > 0 else 0
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Artifact loaders — populate self.artifacts and push to feature_engineer
-    # ══════════════════════════════════════════════════════════════════════════
-
     def _load_effort_artifacts(self):
-        """Load effort_artifacts.pkl → {tfidf, le_type}"""
         path = self.models_dir / 'effort_artifacts.pkl'
         try:
             art = _joblib_load(path)
             self.artifacts['effort_tfidf']   = art['tfidf']
             self.artifacts['effort_le_type'] = art['le_type']
 
-            # Push the real fitted vectorizer into feature_engineering
             from feature_engineering import set_tfidf_vectorizer, set_effort_le_type
             set_tfidf_vectorizer(art['tfidf'])
             set_effort_le_type(art['le_type'])
@@ -264,16 +239,11 @@ class ModelLoader:
             print(f"✗ effort_artifacts: {e}")
 
     def _load_risk_artifacts(self):
-        """Load risk_artifacts.pkl → {imputer, le_type, le_prio, label_map, feature_names}"""
         path = self.models_dir / 'risk_artifacts.pkl'
         try:
             art = _joblib_load(path)
             imputer = art['imputer']
 
-            # ── sklearn version-compatibility patch ───────────────────────────
-            # The imputer was saved with sklearn 1.6.1. In sklearn 1.8.0 the
-            # internal attribute '_fill_dtype' was renamed to '_fit_dtype'.
-            # Without this patch, imputer.transform() raises AttributeError.
             if not hasattr(imputer, '_fill_dtype') and hasattr(imputer, '_fit_dtype'):
                 imputer._fill_dtype = imputer._fit_dtype
 
@@ -289,7 +259,6 @@ class ModelLoader:
             print(f"✗ risk_artifacts: {e}")
 
     def _load_productivity_artifacts(self):
-        """Load productivity_artifacts.pkl → {scaler, le_type, le_prio, input_dim}"""
         path = self.models_dir / 'productivity_artifacts.pkl'
         try:
             art = _joblib_load(path)
@@ -304,7 +273,6 @@ class ModelLoader:
             print(f"✗ productivity_artifacts: {e}")
 
     def _load_quality_artifacts(self):
-        """Load le_prio_quality.pkl → LabelEncoder for quality priority"""
         path = self.models_dir / 'le_prio_quality.pkl'
         try:
             le = _joblib_load(path)
@@ -315,6 +283,36 @@ class ModelLoader:
             print("✓ le_prio_quality")
         except Exception as e:
             print(f"✗ le_prio_quality: {e}")
+
+    def _load_standalone_tfidf(self):
+        """
+        Load tfidf_vectorizer.pkl — the standalone TF-IDF vectorizer used by:
+          - Story point prediction (ai_routes.py)
+          - Sprint goal alignment (sprint_goal_alignment.py)
+        This is separate from the TF-IDF inside effort_artifacts.pkl which is
+        used only for effort model feature engineering.
+        """
+        path = self.models_dir / 'tfidf_vectorizer.pkl'
+        # Also check parent directory (services root)
+        alt_path = self.models_dir.parent / 'tfidf_vectorizer.pkl'
+
+        target = path if path.exists() else (alt_path if alt_path.exists() else None)
+
+        if target is None:
+            print("✗ tfidf_vectorizer.pkl: file not found (checked ml_models/ and parent dir)")
+            print("  Story point prediction and sprint goal alignment will use keyword fallback")
+            return
+
+        try:
+            vec = _joblib_load(target)
+            self.artifacts['standalone_tfidf'] = vec
+
+            # Push into the shared registry so ai_routes and sprint_goal_alignment can access it
+            from tfidf_registry import set_standalone_tfidf
+            set_standalone_tfidf(vec)
+            print(f"✓ tfidf_vectorizer.pkl (standalone) from {target}")
+        except Exception as e:
+            print(f"✗ tfidf_vectorizer.pkl: {e}")
 
     def cleanup(self):
         if self._temp_dir and Path(self._temp_dir).exists():

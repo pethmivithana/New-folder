@@ -1,166 +1,217 @@
 /**
- * ImpactAnalyzer.jsx  — EXISTING FILE (replace fully)
- * ─────────────────────────────────────────────────────────────────────────────
- * Changes in this version:
- *   - Removed recordAnalysisHistory() call — history now comes from MongoDB
- *     via GET /api/impact/history/{spaceId} (no sessionStorage needed)
- *   - spaceId resolved from: prop → selectedSprint.space_id → ''
- *   - space_id correctly passed to createBacklogItem on every action
- *
- * Props:
- *   sprints : Sprint[]   — list of sprints for selector
- *   spaceId : string     — current space id (required for backlog item creation)
+ * ImpactAnalyzer.jsx — Light theme, fully legible, matches AgileSense-AI design language
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from './api';
 
-// ─── Action metadata ──────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 const ACTION_META = {
-  ADD:    { icon: '✅', label: 'Add to Sprint',    bg: 'bg-green-600',  hover: 'hover:bg-green-700',  border: 'border-green-200',  cardBg: 'bg-green-50',  text: 'text-green-900',  badge: 'bg-green-100 text-green-800'   },
-  SWAP:   { icon: '🔄', label: 'Execute Swap',     bg: 'bg-blue-600',   hover: 'hover:bg-blue-700',   border: 'border-blue-200',   cardBg: 'bg-blue-50',   text: 'text-blue-900',   badge: 'bg-blue-100 text-blue-800'    },
-  DEFER:  { icon: '⏸',  label: 'Defer to Backlog', bg: 'bg-amber-500',  hover: 'hover:bg-amber-600',  border: 'border-amber-200',  cardBg: 'bg-amber-50',  text: 'text-amber-900',  badge: 'bg-amber-100 text-amber-800'  },
-  SPLIT:  { icon: '✂️', label: 'Split Ticket',     bg: 'bg-purple-600', hover: 'hover:bg-purple-700', border: 'border-purple-200', cardBg: 'bg-purple-50', text: 'text-purple-900', badge: 'bg-purple-100 text-purple-800' },
-  ACCEPT: { icon: '✅', label: 'Accept',           bg: 'bg-green-600',  hover: 'hover:bg-green-700',  border: 'border-green-200',  cardBg: 'bg-green-50',  text: 'text-green-900',  badge: 'bg-green-100 text-green-800'   },
+  ADD:    { icon: '✅', label: 'Add to Sprint',    color: '#059669', bg: '#ecfdf5', border: '#6ee7b7', text: '#065f46' },
+  SWAP:   { icon: '🔄', label: 'Execute Swap',     color: '#2563eb', bg: '#eff6ff', border: '#93c5fd', text: '#1e3a8a' },
+  DEFER:  { icon: '⏸',  label: 'Defer to Backlog', color: '#d97706', bg: '#fffbeb', border: '#fcd34d', text: '#78350f' },
+  SPLIT:  { icon: '✂️', label: 'Split Ticket',     color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', text: '#3b0764' },
+  ACCEPT: { icon: '✅', label: 'Accept',           color: '#059669', bg: '#ecfdf5', border: '#6ee7b7', text: '#065f46' },
 };
 
-// ─── Execute action against backlog API ───────────────────────────────────────
-async function executeAction(action, recommendation, sprintId, spaceId, formData) {
-  const base = {
-    title:        formData.title,
-    description:  formData.description,
-    story_points: formData.story_points,
-    priority:     formData.priority,
-    type:         formData.type,
-    space_id:     spaceId,   // always required
-    status:       'To Do',
-  };
+const STATUS = {
+  safe:     { color: '#059669', bg: '#ecfdf5', border: '#a7f3d0', chip: '#d1fae5', chipText: '#065f46', label: 'NOMINAL',  bar: '#10b981' },
+  warning:  { color: '#d97706', bg: '#fffbeb', border: '#fde68a', chip: '#fef3c7', chipText: '#92400e', label: 'CAUTION',  bar: '#f59e0b' },
+  critical: { color: '#dc2626', bg: '#fef2f2', border: '#fecaca', chip: '#fee2e2', chipText: '#991b1b', label: 'ALERT',    bar: '#ef4444' },
+};
 
-  switch (action) {
-    case 'ADD':
-    case 'ACCEPT': {
-      const res = await api.createBacklogItem({ ...base, sprint_id: sprintId });
-      return { ok: true, message: `"${formData.title}" added to sprint.`, data: res };
-    }
-    case 'SWAP': {
-      const target = recommendation?.target_ticket;
-      if (!target?.id) throw new Error('No swap target in recommendation.');
-      await api.updateBacklogItem(target.id, { sprint_id: null });
-      const res = await api.createBacklogItem({ ...base, sprint_id: sprintId });
-      return { ok: true, message: `Swapped: "${target.title}" → backlog. "${formData.title}" → sprint.`, data: res };
-    }
-    case 'DEFER': {
-      const res = await api.createBacklogItem({ ...base, sprint_id: null });
-      return { ok: true, message: `"${formData.title}" saved to backlog for next sprint.`, data: res };
-    }
-    case 'SPLIT': {
-      const res = await api.createBacklogItem({ ...base, sprint_id: null });
-      return {
-        ok: true, requiresManual: true,
-        message: `"${formData.title}" saved to backlog. Split it into sub-tickets before planning.`,
-        data: res,
-      };
-    }
-    default:
-      throw new Error(`Unknown action: ${action}`);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+async function executeAction(action, recommendation, sprintId, spaceId, formData) {
+  const base = { title: formData.title, description: formData.description, story_points: formData.story_points, priority: formData.priority, type: formData.type, space_id: spaceId, status: 'To Do' };
+  if (action === 'ADD' || action === 'ACCEPT') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: sprintId });
+    return { ok: true, message: `"${formData.title}" added to sprint.`, data: r };
   }
+  if (action === 'SWAP') {
+    const t = recommendation?.target_ticket;
+    if (!t?.id) throw new Error('No swap target in recommendation.');
+    await api.updateBacklogItem(t.id, { sprint_id: null });
+    const r = await api.createBacklogItem({ ...base, sprint_id: sprintId });
+    return { ok: true, message: `Swapped out "${t.title}". "${formData.title}" added to sprint.`, data: r };
+  }
+  if (action === 'DEFER') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: null });
+    return { ok: true, message: `"${formData.title}" saved to backlog.`, data: r };
+  }
+  if (action === 'SPLIT') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: null });
+    return { ok: true, requiresManual: true, message: `Saved to backlog. Split manually before sprint planning.`, data: r };
+  }
+  throw new Error('Unknown action: ' + action);
 }
 
-// ─── Send feedback to MongoDB (best-effort) ───────────────────────────────────
 async function logFeedback(logId, accepted, takenAction) {
   if (!logId) return;
-  try {
-    await api.recordImpactFeedback(logId, {
-      accepted,
-      taken_action: takenAction,
-    });
-  } catch (_) {}
+  try { await api.recordImpactFeedback(logId, { accepted, taken_action: takenAction }); } catch (_) {}
 }
 
-// ─── Recommendation Card ──────────────────────────────────────────────────────
+// ─── CapacityBar ──────────────────────────────────────────────────────────────
+function CapacityBar({ used, total }) {
+  const pct  = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+  const col  = pct > 90 ? '#dc2626' : pct > 70 ? '#d97706' : '#059669';
+  const free = Math.max(0, total - used);
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+        <span style={{ fontSize:12, color:'#374151', fontWeight:600 }}>Sprint Capacity</span>
+        <span style={{ fontSize:12, fontWeight:800, color:'#111827' }}>{used} / {total} SP</span>
+      </div>
+      <div style={{ height:8, background:'#e5e7eb', borderRadius:6, overflow:'hidden' }}>
+        <div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:6, transition:'width 0.9s cubic-bezier(.16,1,.3,1)' }} />
+      </div>
+      <div style={{ display:'flex', justifyContent:'space-between', marginTop:5 }}>
+        <span style={{ fontSize:11, color:'#9ca3af' }}>{Math.round(pct)}% used</span>
+        <span style={{ fontSize:11, color:free < 5 ? '#dc2626' : '#059669', fontWeight:600 }}>{free} SP remaining</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── StatPill ─────────────────────────────────────────────────────────────────
+function StatPill({ label, value, accent }) {
+  return (
+    <div style={{ textAlign:'center', padding:'10px 6px', background: accent ? '#eff6ff' : '#f9fafb', borderRadius:8, border: accent ? '1px solid #bfdbfe' : '1px solid #e5e7eb' }}>
+      <div style={{ fontSize:17, fontWeight:800, color: accent ? '#1d4ed8' : '#111827' }}>{value}</div>
+      <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.07em', fontWeight:600, marginTop:2 }}>{label}</div>
+    </div>
+  );
+}
+
+// ─── RiskCard ─────────────────────────────────────────────────────────────────
+const RISK_ICONS = {
+  0: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,                                          // quality
+  1: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,  // schedule
+  2: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>,                                                // productivity
+  3: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,                          // effort
+};
+
+function RiskCard({ label, value, status, sub_text, index }) {
+  const [open, setOpen] = useState(false);
+  const s = STATUS[status] || STATUS.warning;
+  return (
+    <div
+      onClick={() => setOpen(o => !o)}
+      style={{ background:'#fff', border:`1px solid ${open ? s.color : '#e5e7eb'}`, borderLeft:`4px solid ${s.color}`, borderRadius:10, padding:'14px 16px', cursor:'pointer', transition:'all .2s', boxShadow: open ? `0 4px 14px ${s.color}22` : '0 1px 3px rgba(0,0,0,.05)' }}
+    >
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
+          <div style={{ width:32, height:32, borderRadius:8, background:s.bg, border:`1px solid ${s.border}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={s.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {RISK_ICONS[index] || RISK_ICONS[0]}
+            </svg>
+          </div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:700, marginBottom:2 }}>{label}</div>
+            <div style={{ fontSize:13, fontWeight:800, color:'#111827', lineHeight:1.2 }}>{value}</div>
+          </div>
+        </div>
+        <span style={{ fontSize:9, fontWeight:800, padding:'3px 7px', borderRadius:4, background:s.chip, color:s.chipText, border:`1px solid ${s.border}`, whiteSpace:'nowrap', letterSpacing:'0.07em', flexShrink:0 }}>
+          {s.label}
+        </span>
+      </div>
+      {open && (
+        <div style={{ marginTop:10, paddingTop:10, borderTop:`1px dashed ${s.border}`, fontSize:12, color:'#4b5563', lineHeight:1.65 }}>
+          {sub_text}
+        </div>
+      )}
+      <div style={{ marginTop:6, fontSize:10, color:s.color, fontWeight:700 }}>{open ? '▲ collapse' : '▼ details'}</div>
+    </div>
+  );
+}
+
+// ─── GaugeBar ─────────────────────────────────────────────────────────────────
+function GaugeBar({ label, pct, status }) {
+  const s = STATUS[status] || STATUS.warning;
+  return (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+        <span style={{ fontSize:12, color:'#374151', fontWeight:500 }}>{label}</span>
+        <span style={{ fontSize:12, fontWeight:700, color:s.color }}>{Math.round(pct)}%</span>
+      </div>
+      <div style={{ height:7, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
+        <div style={{ height:'100%', width:`${Math.min(100,pct)}%`, background:s.bar, borderRadius:4, transition:'width .9s cubic-bezier(.16,1,.3,1)' }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── RecommendationCard ───────────────────────────────────────────────────────
 function RecommendationCard({ recommendation, explanation, formData, sprintId, spaceId, logId, onActionDone }) {
-  const [executing, setExecuting] = useState(false);
+  const [doing,     setDoing]     = useState(false);
   const [done,      setDone]      = useState(false);
   const [doneMsg,   setDoneMsg]   = useState('');
   const [planOpen,  setPlanOpen]  = useState(false);
 
   const type = recommendation?.recommendation_type ?? 'DEFER';
   const meta = ACTION_META[type] ?? ACTION_META.DEFER;
-  const alternatives = Object.keys(ACTION_META).filter(k => k !== type && k !== 'ACCEPT');
+  const alts = Object.keys(ACTION_META).filter(k => k !== type && k !== 'ACCEPT');
 
-  const handleAction = async (actionType) => {
-    setExecuting(true);
+  const doAction = async (a) => {
+    setDoing(true);
     try {
-      const result = await executeAction(actionType, recommendation, sprintId, spaceId, formData);
-      // Record what the user actually did in MongoDB
-      await logFeedback(
-        logId,
-        true,
-        actionType === type ? 'FOLLOWED_RECOMMENDATION' : 'IGNORED_RECOMMENDATION',
-      );
-      setDone(true);
-      setDoneMsg(result.message);
-      onActionDone?.(result);
-    } catch (err) {
-      alert('Action failed: ' + err.message);
-    } finally {
-      setExecuting(false);
-    }
+      const r = await executeAction(a, recommendation, sprintId, spaceId, formData);
+      await logFeedback(logId, true, a === type ? 'FOLLOWED_RECOMMENDATION' : 'IGNORED_RECOMMENDATION');
+      setDone(true); setDoneMsg(r.message); onActionDone?.(r);
+    } catch (e) { alert('Action failed: ' + e.message); }
+    finally { setDoing(false); }
   };
 
   return (
-    <div className={`border-2 rounded-xl p-5 ${meta.cardBg} ${meta.border}`}>
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{meta.icon}</span>
+    <div style={{ background:meta.bg, border:`1.5px solid ${meta.border}`, borderRadius:14, padding:20 }}>
+      {/* header */}
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:46, height:46, borderRadius:12, background:'#fff', border:`1px solid ${meta.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0, boxShadow:'0 1px 4px rgba(0,0,0,.07)' }}>
+            {meta.icon}
+          </div>
           <div>
-            <div className="text-xs font-bold tracking-widest text-gray-500 mb-0.5">AI RECOMMENDATION</div>
-            <div className={`text-base font-extrabold ${meta.text} leading-tight`}>
-              {explanation?.short_title ?? type}
-            </div>
+            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700, marginBottom:2 }}>AI Recommendation</div>
+            <div style={{ fontSize:16, fontWeight:800, color:meta.color }}>{explanation?.short_title ?? type}</div>
           </div>
         </div>
-        <span className={`text-xs font-bold px-3 py-1 rounded-full ${meta.badge} shrink-0`}>{type}</span>
+        <span style={{ fontSize:10, fontWeight:800, padding:'4px 10px', borderRadius:6, background:'#fff', color:meta.color, border:`1px solid ${meta.border}`, letterSpacing:'0.1em', whiteSpace:'nowrap' }}>
+          {type}
+        </span>
       </div>
 
-      {/* Reasoning */}
-      <p className={`text-sm mb-3 leading-relaxed ${meta.text} opacity-90`}>{recommendation?.reasoning}</p>
+      {/* reasoning */}
+      <p style={{ fontSize:13, color:'#374151', lineHeight:1.7, marginBottom:14 }}>{recommendation?.reasoning}</p>
 
-      {/* Detailed explanation */}
-      {explanation?.detailed_explanation &&
-        explanation.detailed_explanation !== recommendation?.reasoning && (
-        <div className="bg-white bg-opacity-60 rounded-lg p-3 mb-3 text-sm text-gray-700 leading-relaxed">
+      {/* detailed explanation */}
+      {explanation?.detailed_explanation && explanation.detailed_explanation !== recommendation?.reasoning && (
+        <div style={{ background:'#fff', border:`1px solid ${meta.border}`, borderRadius:8, padding:'10px 14px', marginBottom:14, fontSize:12, color:'#4b5563', lineHeight:1.65 }}>
           {explanation.detailed_explanation}
         </div>
       )}
 
-      {/* Swap target */}
+      {/* swap target */}
       {recommendation?.target_ticket && (
-        <div className="bg-white bg-opacity-70 border border-blue-100 rounded-lg p-3 mb-3 flex items-center gap-3">
-          <span className="text-xl shrink-0">🎯</span>
+        <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:18 }}>🎯</span>
           <div>
-            <div className="text-xs font-bold text-gray-500 tracking-widest mb-0.5">SWAP TARGET</div>
-            <div className="text-sm font-bold text-gray-800">{recommendation.target_ticket.title}</div>
-            <div className="text-xs text-gray-500">
-              {recommendation.target_ticket.story_points} SP · {recommendation.target_ticket.priority} · {recommendation.target_ticket.status}
-            </div>
+            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700 }}>Swap Target</div>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1e3a8a' }}>{recommendation.target_ticket.title}</div>
+            <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{recommendation.target_ticket.story_points} SP · {recommendation.target_ticket.priority} · {recommendation.target_ticket.status}</div>
           </div>
         </div>
       )}
 
-      {/* Action plan */}
+      {/* action plan */}
       {recommendation?.action_plan && Object.keys(recommendation.action_plan).length > 0 && (
-        <div className="mb-3">
-          <button onClick={() => setPlanOpen(o => !o)}
-            className={`text-xs font-bold tracking-widest flex items-center gap-1 ${meta.text} opacity-70 hover:opacity-100`}>
-            {planOpen ? '▼' : '▶'} ACTION PLAN
+        <div style={{ marginBottom:14 }}>
+          <button onClick={() => setPlanOpen(o => !o)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, fontWeight:700, color:meta.color, display:'flex', alignItems:'center', gap:5, padding:0, letterSpacing:'0.05em' }}>
+            <span style={{ transition:'transform .2s', transform:planOpen?'rotate(90deg)':'none', display:'inline-block' }}>▶</span> Action Plan
           </button>
           {planOpen && (
-            <div className="mt-2 space-y-1">
+            <div style={{ marginTop:8, paddingLeft:14, borderLeft:`3px solid ${meta.border}` }}>
               {Object.entries(recommendation.action_plan).map(([k, v]) => (
-                <div key={k} className={`text-xs flex gap-2 ${meta.text}`}>
-                  <span className="opacity-50">→</span><span>{v}</span>
+                <div key={k} style={{ fontSize:12, color:'#374151', marginBottom:5, display:'flex', gap:8, lineHeight:1.6 }}>
+                  <span style={{ color:meta.color, fontWeight:700, flexShrink:0 }}>→</span>{v}
                 </div>
               ))}
             </div>
@@ -168,33 +219,35 @@ function RecommendationCard({ recommendation, explanation, formData, sprintId, s
         </div>
       )}
 
-      {/* Risk summary */}
+      {/* risk summary */}
       {explanation?.risk_summary && (
-        <div className="text-xs text-gray-400 font-mono mb-4">{explanation.risk_summary}</div>
+        <div style={{ fontSize:11, color:'#9ca3af', marginBottom:16, fontFamily:'monospace' }}>{explanation.risk_summary}</div>
       )}
 
       {/* CTA */}
       {done ? (
-        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm font-semibold text-green-700 flex items-center gap-2">
+        <div style={{ background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:600, color:'#065f46', display:'flex', alignItems:'center', gap:8 }}>
           ✅ {doneMsg}
         </div>
       ) : (
         <>
-          <button onClick={() => handleAction(type)} disabled={executing}
-            className={`w-full ${meta.bg} ${meta.hover} text-white font-bold py-2.5 px-4 rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-opacity mb-3`}>
-            {executing
-              ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> Applying…</>
+          <button onClick={() => doAction(type)} disabled={doing}
+            style={{ width:'100%', padding:'12px 16px', background:meta.color, border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:10, opacity:doing?.7:1, transition:'all .2s', boxShadow:`0 3px 10px ${meta.color}44`, letterSpacing:'0.03em' }}
+          >
+            {doing
+              ? <><div style={{ width:14, height:14, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Applying…</>
               : <>{meta.icon} {meta.label}</>}
           </button>
           <div>
-            <div className="text-xs font-semibold text-gray-400 mb-2 tracking-widest">OR CHOOSE MANUALLY</div>
-            <div className="flex flex-wrap gap-2">
-              {alternatives.map(alt => {
-                const m = ACTION_META[alt];
+            <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.08em' }}>Or choose manually</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {alts.map(a => {
+                const m = ACTION_META[a];
                 return (
-                  <button key={alt} onClick={() => handleAction(alt)} disabled={executing}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border-2 ${m.border} ${m.cardBg} ${m.text} hover:opacity-80 disabled:opacity-40`}>
-                    {m.icon} {alt}
+                  <button key={a} onClick={() => doAction(a)} disabled={doing}
+                    style={{ fontSize:11, fontWeight:700, padding:'5px 12px', background:m.bg, border:`1px solid ${m.border}`, color:m.color, borderRadius:6, cursor:'pointer', opacity:doing?.5:1, transition:'all .15s' }}
+                  >
+                    {m.icon} {a}
                   </button>
                 );
               })}
@@ -206,443 +259,325 @@ function RecommendationCard({ recommendation, explanation, formData, sprintId, s
   );
 }
 
-// ─── Main ImpactAnalyzer ──────────────────────────────────────────────────────
-export default function ImpactAnalyzer({ sprints, spaceId }) {
-  const [selectedSprint, setSelectedSprint] = useState(null);
-  const [formData, setFormData] = useState({
-    title: '', description: '', story_points: 5, priority: 'Medium', type: 'Task',
-  });
-  const [analysis,      setAnalysis]      = useState(null);
-  const [loading,       setLoading]       = useState(false);
-  const [sprintContext, setSprintContext]  = useState(null);
-  const [actionResult,  setActionResult]  = useState(null);
-  const [suggestingPoints, setSuggestingPoints] = useState(false);
-  const [goalAlignment, setGoalAlignment] = useState(null);
-  const [checkingAlignment, setCheckingAlignment] = useState(false);
-  const [showManualOverride, setShowManualOverride] = useState(false);
-  const [manualAlignment, setManualAlignment] = useState(null);
+// ─── GoalAlignmentStrip ───────────────────────────────────────────────────────
+function GoalAlignmentStrip({ goalAlignment, onClear }) {
+  if (!goalAlignment) return null;
+  const S = {
+    ACCEPT:   { color:'#059669', bg:'#ecfdf5', border:'#a7f3d0', icon:'✅' },
+    CONSIDER: { color:'#2563eb', bg:'#eff6ff', border:'#bfdbfe', icon:'🔍' },
+    EVALUATE: { color:'#d97706', bg:'#fffbeb', border:'#fde68a', icon:'⚡' },
+    DEFER:    { color:'#dc2626', bg:'#fef2f2', border:'#fecaca', icon:'⏸' },
+  }[goalAlignment.final_recommendation] || { color:'#6b7280', bg:'#f9fafb', border:'#e5e7eb', icon:'📋' };
+  return (
+    <div style={{ background:S.bg, border:`1.5px solid ${S.border}`, borderRadius:12, padding:'14px 16px' }}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:8 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:20 }}>{S.icon}</span>
+          <div>
+            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700 }}>Goal Alignment</div>
+            <div style={{ fontSize:14, fontWeight:800, color:S.color }}>{goalAlignment.final_recommendation}</div>
+          </div>
+        </div>
+        <button onClick={onClear} style={{ background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:16, padding:4, lineHeight:1 }}>✕</button>
+      </div>
+      <p style={{ fontSize:12, color:'#374151', lineHeight:1.6, marginBottom:8 }}>{goalAlignment.recommendation_reason}</p>
+      <div style={{ fontSize:11, color:'#4b5563', borderTop:`1px dashed ${S.border}`, paddingTop:8 }}>
+        <strong>Next: </strong>{goalAlignment.next_steps}
+      </div>
+    </div>
+  );
+}
 
-  // Auto-select active sprint on load
+// ─── RiskBanner ───────────────────────────────────────────────────────────────
+function RiskBanner({ status }) {
+  const C = {
+    safe:     { bg:'#ecfdf5', border:'#a7f3d0', dot:'#10b981', title:'All Signals Nominal',       sub:'Safe to add to sprint' },
+    warning:  { bg:'#fffbeb', border:'#fde68a', dot:'#f59e0b', title:'Elevated Risk Detected',    sub:'Review caution items before proceeding' },
+    critical: { bg:'#fef2f2', border:'#fecaca', dot:'#ef4444', title:'Critical Risk Detected',    sub:'Follow recommendation before adding to sprint' },
+  }[status] || {};
+  return (
+    <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
+      <div style={{ width:10, height:10, borderRadius:'50%', background:C.dot, flexShrink:0, boxShadow: status!=='safe' ? `0 0 0 4px ${C.dot}33` : 'none' }} />
+      <div>
+        <div style={{ fontSize:13, fontWeight:700, color:'#111827' }}>{C.title}</div>
+        <div style={{ fontSize:11, color:'#6b7280', marginTop:1 }}>{C.sub}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ImpactAnalyzer (main) ────────────────────────────────────────────────────
+export default function ImpactAnalyzer({ sprints, spaceId }) {
+  const [sprint,    setSprint]    = useState(null);
+  const [form,      setForm]      = useState({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' });
+  const [analysis,  setAnalysis]  = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [ctx,       setCtx]       = useState(null);
+  const [result,    setResult]    = useState(null);
+  const [suggesting,setSuggesting]= useState(false);
+  const [alignment, setAlignment] = useState(null);
+  const [aligning,  setAligning]  = useState(false);
+  const ref = useRef(null);
+
   useEffect(() => {
     const active = sprints?.find(s => s.status === 'Active') || sprints?.[0];
-    if (active && !selectedSprint) {
-      setSelectedSprint(active);
-      loadSprintContext(active.id);
-    }
+    if (active && !sprint) { setSprint(active); loadCtx(active.id); }
   }, [sprints]);
 
-  const loadSprintContext = async (sprintId) => {
+  const loadCtx = async (id) => { try { setCtx(await api.getSprintContext(id)); } catch { setCtx(null); } };
+
+  const pickSprint = (id) => {
+    const s = sprints.find(x => x.id === id);
+    setSprint(s); setAnalysis(null); setResult(null);
+    if (s) loadCtx(s.id);
+  };
+
+  const suggestPoints = async () => {
+    if (!form.title.trim()) { alert('Enter a title first'); return; }
+    setSuggesting(true);
+    try { const r = await api.predictStoryPoints({ title: form.title, description: form.description }); setForm({ ...form, story_points: r.suggested_points || 5 }); }
+    catch (e) { alert('Could not suggest: ' + e.message); }
+    finally { setSuggesting(false); }
+  };
+
+  const checkAlignment = async () => {
+    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
+    setAligning(true);
     try {
-      const ctx = await api.getSprintContext(sprintId);
-      setSprintContext(ctx);
-    } catch (err) {
-      console.error('Sprint context error:', err);
-      setSprintContext(null);
-    }
+      const r = await api.analyzeSprintGoalAlignment({ sprint_goal: sprint.goal || 'No goal', requirement_title: form.title, requirement_description: form.description, requirement_priority: form.priority, requirement_epic: null, sprint_epic: null, requirement_components: [], sprint_components: [] });
+      setAlignment(r);
+    } catch (e) { alert('Alignment check failed: ' + e.message); }
+    finally { setAligning(false); }
   };
 
-  const handleSprintChange = (sprintId) => {
-    const sprint = sprints.find(s => s.id === sprintId);
-    setSelectedSprint(sprint);
-    setAnalysis(null);
-    setActionResult(null);
-    if (sprint) loadSprintContext(sprint.id);
-  };
-
-  const handleSuggestPoints = async () => {
-    if (!formData.title.trim()) {
-      alert('Please enter a title first');
-      return;
-    }
-    
-    setSuggestingPoints(true);
+  const analyze = async () => {
+    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
+    setLoading(true); setAnalysis(null); setResult(null);
     try {
-      const result = await api.predictStoryPoints({
-        title: formData.title,
-        description: formData.description,
-      });
-      // Use median suggestion or suggested_points
-      const suggestedValue = result.suggested_points || result.median || 5;
-      setFormData({ ...formData, story_points: suggestedValue });
-    } catch (err) {
-      console.error('Failed to suggest points:', err);
-      alert('Could not suggest points: ' + err.message);
-    } finally {
-      setSuggestingPoints(false);
-    }
+      const r = await api.analyzeImpact({ sprint_id: sprint.id, title: form.title, description: form.description, story_points: form.story_points, priority: form.priority, type: form.type });
+      setAnalysis(r);
+      setTimeout(() => ref.current?.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+    } catch (e) { alert('Analysis failed: ' + e.message); }
+    finally { setLoading(false); }
   };
 
-  const handleCheckGoalAlignment = async () => {
-    if (!selectedSprint || !formData.title.trim()) {
-      alert('Please select a sprint and enter a title');
-      return;
-    }
+  const used  = ctx?.current_load   || 0;
+  const total = ctx?.team_velocity  || Math.max(used, 30);
+  const resolvedSpaceId = spaceId || sprint?.space_id || '';
 
-    setCheckingAlignment(true);
-    try {
-      const result = await api.analyzeSprintGoalAlignment({
-        sprint_goal: selectedSprint.goal || 'No goal specified',
-        requirement_title: formData.title,
-        requirement_description: formData.description,
-        requirement_priority: formData.priority,
-        requirement_epic: null,
-        sprint_epic: null,
-        requirement_components: [],
-        sprint_components: [],
-      });
-      setGoalAlignment(result);
-      setManualAlignment(null);
-    } catch (err) {
-      console.error('Failed to check alignment:', err);
-      alert('Failed to check alignment: ' + err.message);
-    } finally {
-      setCheckingAlignment(false);
-    }
-  };
+  const METRICS = [
+    { key:'effort',       label:'Effort Estimate',     idx:3 },
+    { key:'schedule',     label:'Schedule Risk',        idx:1 },
+    { key:'productivity', label:'Productivity Impact',  idx:2 },
+    { key:'quality',      label:'Quality Risk',         idx:0 },
+  ];
 
-  const handleAnalyze = async () => {
-    if (!selectedSprint || !formData.title.trim()) {
-      alert('Please select a sprint and enter a title');
-      return;
-    }
-    setLoading(true);
-    setAnalysis(null);
-    setActionResult(null);
-    try {
-      const result = await api.analyzeImpact({
-        sprint_id:    selectedSprint.id,
-        title:        formData.title,
-        description:  formData.description,
-        story_points: formData.story_points,
-        priority:     formData.priority,
-        type:         formData.type,
-      });
-      setAnalysis(result);
-      // No local storage needed — impact_routes.py now logs to MongoDB
-      // and Analytics tab reads from /api/impact/history/{spaceId}
-    } catch (err) {
-      console.error('Analysis failed:', err);
-      alert('Failed to analyze impact: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const overallStatus = analysis?.display
+    ? (() => { const v = METRICS.map(m => analysis.display[m.key]?.status || 'safe'); return v.includes('critical') ? 'critical' : v.includes('warning') ? 'warning' : 'safe'; })()
+    : null;
 
-  const getStatusColor = (status) => ({
-    safe:     'bg-green-50  border-green-200  text-green-800',
-    warning:  'bg-yellow-50 border-yellow-200 text-yellow-800',
-    critical: 'bg-red-50    border-red-200    text-red-800',
-  }[status] || 'bg-gray-50 border-gray-200 text-gray-800');
-
-  const getStatusBadge = (status) => ({
-    safe: '🟢 Safe', warning: '🟡 Warning', critical: '🔴 Critical',
-  }[status] || '⚪ Unknown');
-
-  // Resolve spaceId: from prop → sprint object → fallback ''
-  const resolvedSpaceId = spaceId || selectedSprint?.space_id || '';
+  // Shared input styles
+  const inp = { width:'100%', padding:'9px 12px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13, color:'#111827', background:'#fff', outline:'none', boxSizing:'border-box', transition:'border-color .15s, box-shadow .15s' };
+  const lbl = { display:'block', fontSize:11, fontWeight:700, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 };
+  const sel = { ...inp, appearance:'none', cursor:'pointer', backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat:'no-repeat', backgroundPosition:'right 12px center', paddingRight:36 };
+  const focus = e => { e.target.style.borderColor='#6366f1'; e.target.style.boxShadow='0 0 0 3px rgba(99,102,241,.12)'; };
+  const blur  = e => { e.target.style.borderColor='#d1d5db'; e.target.style.boxShadow='none'; };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <>
+      <style>{`@keyframes ia-spin{to{transform:rotate(360deg)}}@keyframes ia-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.ia-in{animation:ia-in .3s ease forwards}`}</style>
 
-      {/* ════ LEFT — Form ════ */}
-      <div className="space-y-6">
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Analyze New Requirement</h2>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, alignItems:'start' }}>
+
+        {/* ═══ LEFT — Form ═══ */}
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+          {/* Header card */}
+          <div style={{ background:'linear-gradient(135deg,#6366f1,#8b5cf6)', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', gap:14 }}>
+            <div style={{ width:44, height:44, borderRadius:11, background:'rgba(255,255,255,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>⚡</div>
+            <div>
+              <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>Analyze New Requirement</div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,.75)', marginTop:2 }}>Run ML impact models against active sprint</div>
+            </div>
+          </div>
 
           {/* Sprint selector */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Sprint</label>
-            <select value={selectedSprint?.id || ''} onChange={e => handleSprintChange(e.target.value)}
-              className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-              <option value="">Select Sprint…</option>
-              {sprints?.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.status}){s.status === 'Active' ? ' 🔥' : ''}
-                </option>
-              ))}
+          <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:18 }}>
+            <label style={lbl}>Target Sprint</label>
+            <select value={sprint?.id || ''} onChange={e => pickSprint(e.target.value)} style={sel} onFocus={focus} onBlur={blur}>
+              <option value="">Select sprint…</option>
+              {sprints?.map(s => <option key={s.id} value={s.id}>{s.name} ({s.status}){s.status === 'Active' ? ' 🔥' : ''}</option>)}
             </select>
-          </div>
-
-          {/* Sprint status */}
-          {sprintContext && (
-            <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
-              <h3 className="text-sm font-semibold text-blue-900 mb-2">📊 Sprint Status</h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                {[
-                  ['Load',      `${sprintContext.current_load} SP`],
-                  ['Items',     sprintContext.item_count],
-                  ['Days Left', sprintContext.days_remaining],
-                  ['Progress',  `${sprintContext.sprint_progress}%`],
-                ].map(([label, val]) => (
-                  <div key={label} className="flex justify-between">
-                    <span className="text-blue-700">{label}:</span>
-                    <span className="font-bold text-blue-900">{val}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3">
-                <div className="flex justify-between text-xs text-blue-700 mb-1">
-                  <span>Sprint Capacity</span>
-                  <span>{sprintContext.current_load} / {sprintContext.team_velocity} SP</span>
+            {ctx && (
+              <>
+                <div style={{ marginTop:14 }}><CapacityBar used={used} total={total} /></div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginTop:12 }}>
+                  <StatPill label="Items"    value={ctx.item_count} />
+                  <StatPill label="Progress" value={`${ctx.sprint_progress}%`} />
+                  <StatPill label="Days left" value={ctx.days_remaining} accent />
+                  <StatPill label="Free SP"  value={Math.max(0, total - used)} />
                 </div>
-                <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all ${
-                    (sprintContext.current_load / (sprintContext.team_velocity || 1)) > 0.9 ? 'bg-red-500'
-                    : (sprintContext.current_load / (sprintContext.team_velocity || 1)) > 0.7 ? 'bg-amber-400'
-                    : 'bg-blue-500'}`}
-                    style={{ width: `${Math.min(100, (sprintContext.current_load / (sprintContext.team_velocity || 1)) * 100)}%` }} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Title */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
-            <input type="text" value={formData.title}
-              onChange={e => setFormData({ ...formData, title: e.target.value })}
-              className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-gray-400"
-              placeholder="e.g., Add payment gateway integration" />
+              </>
+            )}
           </div>
 
-          {/* Description */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-            <textarea value={formData.description}
-              onChange={e => setFormData({ ...formData, description: e.target.value })}
-              className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-gray-400 resize-none"
-              rows={4} placeholder="Describe the requirement…" />
-          </div>
-
-          {/* Story points + Priority */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          {/* Fields */}
+          <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:18, display:'flex', flexDirection:'column', gap:14 }}>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Story Points</label>
-              <div className="flex gap-2">
-                <input type="number" min="1" max="21" value={formData.story_points}
-                  onChange={e => setFormData({ ...formData, story_points: parseInt(e.target.value) || 5 })}
-                  className="flex-1 bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
-                <button
-                  onClick={handleSuggestPoints}
-                  disabled={suggestingPoints}
-                  className="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-medium rounded-lg text-sm flex items-center gap-1 disabled:opacity-50 whitespace-nowrap transition-colors">
-                  {suggestingPoints ? (
-                    <><div className="animate-spin h-4 w-4 border-2 border-indigo-700 border-t-transparent rounded-full" /></>
-                  ) : (
-                    <>✨ Suggest</>
-                  )}
-                </button>
+              <label style={lbl}>Title *</label>
+              <input type="text" value={form.title} onChange={e => setForm({...form, title:e.target.value})} style={inp} placeholder="e.g., Add payment gateway integration" onFocus={focus} onBlur={blur} />
+            </div>
+            <div>
+              <label style={lbl}>Description</label>
+              <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} style={{...inp, resize:'vertical'}} rows={3} placeholder="Technical details, affected systems, integrations…" onFocus={focus} onBlur={blur} />
+              <p style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>💡 Richer detail improves story point accuracy</p>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+              <div>
+                <label style={lbl}>Story Points</label>
+                <div style={{ display:'flex', gap:8 }}>
+                  <input type="number" min="1" max="21" value={form.story_points} onChange={e => setForm({...form, story_points:parseInt(e.target.value)||5})} style={{...inp, flex:1}} onFocus={focus} onBlur={blur} />
+                  <button onClick={suggestPoints} disabled={suggesting}
+                    style={{ padding:'8px 10px', background:'#eff6ff', border:'1px solid #bfdbfe', color:'#2563eb', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4, opacity:suggesting?.6:1 }}
+                  >
+                    {suggesting ? <div style={{ width:12, height:12, border:'2px solid #bfdbfe', borderTopColor:'#2563eb', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> : '✨'} AI
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Priority</label>
+                <select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})} style={sel} onFocus={focus} onBlur={blur}>
+                  <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+                </select>
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
-              <select value={formData.priority} onChange={e => setFormData({ ...formData, priority: e.target.value })}
-                className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+              <label style={lbl}>Type</label>
+              <select value={form.type} onChange={e => setForm({...form, type:e.target.value})} style={sel} onFocus={focus} onBlur={blur}>
+                <option>Task</option><option>Story</option><option>Bug</option><option>Subtask</option>
               </select>
             </div>
           </div>
 
-          {/* Type */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
-            <select value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}
-              className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-              <option>Task</option><option>Story</option><option>Bug</option><option>Subtask</option>
-            </select>
-          </div>
-
-          {/* Goal Alignment Check */}
-          <button onClick={handleCheckGoalAlignment} disabled={checkingAlignment || !selectedSprint}
-            className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-6 py-2 rounded-lg hover:opacity-90 font-medium disabled:opacity-50 flex items-center justify-center gap-2 mb-2 text-sm">
-            {checkingAlignment
-              ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" /> Checking…</>
-              : (<><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg> Check Sprint Goal Alignment</>)}
+          {/* Buttons */}
+          <button onClick={checkAlignment} disabled={aligning || !sprint}
+            style={{ padding:'10px 16px', background:'#fff', border:'1.5px solid #06b6d4', color:'#0891b2', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(aligning||!sprint)?.5:1, transition:'all .2s' }}
+          >
+            {aligning ? <><div style={{ width:13, height:13, border:'2px solid #a5f3fc', borderTopColor:'#0891b2', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Checking…</> : <>🎯 Check Sprint Goal Alignment</>}
           </button>
 
-          {/* Analyze button */}
-          <button onClick={handleAnalyze} disabled={loading || !selectedSprint}
-            className="w-full bg-gradient-to-r from-pink-600 to-rose-600 text-white px-6 py-3 rounded-lg hover:opacity-90 font-medium disabled:opacity-50 flex items-center justify-center gap-2">
-            {loading
-              ? <><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" /> Analyzing…</>
-              : (<><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg> Analyze Impact</>)}
+          <button onClick={analyze} disabled={loading || !sprint}
+            style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
+          >
+            {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : <>⚡ Analyze Impact</>}
           </button>
+
+          {alignment && <GoalAlignmentStrip goalAlignment={alignment} onClear={() => setAlignment(null)} />}
+        </div>
+
+        {/* ═══ RIGHT — Results ═══ */}
+        <div ref={ref} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+          {/* Empty state */}
+          {!analysis && !loading && (
+            <div style={{ background:'#fff', border:'2px dashed #e5e7eb', borderRadius:14, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:340, gap:12, padding:32, textAlign:'center' }}>
+              <div style={{ width:64, height:64, borderRadius:16, background:'linear-gradient(135deg,#f5f3ff,#eff6ff)', border:'1px solid #e0e7ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>⚡</div>
+              <div style={{ fontSize:16, fontWeight:700, color:'#374151' }}>No Analysis Yet</div>
+              <div style={{ fontSize:13, color:'#9ca3af', maxWidth:240, lineHeight:1.65 }}>Fill in the form on the left and click "Analyze Impact" to run ML models against the sprint</div>
+            </div>
+          )}
+
+          {/* Loading */}
+          {loading && (
+            <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:14, padding:36, display:'flex', flexDirection:'column', alignItems:'center', gap:18 }}>
+              <div style={{ position:'relative', width:52, height:52 }}>
+                <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:'3px solid #e5e7eb', borderTopColor:'#6366f1', animation:'ia-spin .9s linear infinite' }} />
+                <div style={{ position:'absolute', inset:8, borderRadius:'50%', border:'3px solid #e5e7eb', borderTopColor:'#8b5cf6', animation:'ia-spin 1.4s linear infinite reverse' }} />
+              </div>
+              <div style={{ fontSize:14, fontWeight:700, color:'#374151' }}>Running ML Models…</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                {['Effort estimation','Schedule risk','Productivity impact','Quality risk'].map((m, i) => (
+                  <div key={m} style={{ display:'flex', alignItems:'center', gap:10, fontSize:12, color:'#6b7280' }}>
+                    <div style={{ width:7, height:7, borderRadius:'50%', background:'#6366f1', opacity:.4 + i * .15 }} />{m}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Results */}
+          {analysis?.display && (
+            <>
+              <div className="ia-in"><RiskBanner status={overallStatus} /></div>
+
+              <div style={{ display:'flex', alignItems:'center', gap:10 }} className="ia-in">
+                <span style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.12em', whiteSpace:'nowrap' }}>Risk Signals</span>
+                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }} className="ia-in">
+                {METRICS.map(({ key, label, idx }) => {
+                  const m = analysis.display[key];
+                  if (!m) return null;
+                  return <RiskCard key={key} label={label} value={m.value} status={m.status} sub_text={m.sub_text} index={idx} />;
+                })}
+              </div>
+
+              <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'16px 18px' }} className="ia-in">
+                <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.12em', marginBottom:14 }}>Risk Overview</div>
+                <GaugeBar label="Schedule spillover" pct={analysis.ml_raw?.schedule_risk?.probability ?? 0} status={analysis.display.schedule?.status} />
+                <GaugeBar label="Defect probability"  pct={analysis.ml_raw?.quality_risk?.probability  ?? 0} status={analysis.display.quality?.status}   />
+                <GaugeBar label="Productivity drag"   pct={Math.abs(analysis.ml_raw?.productivity?.velocity_change ?? 0)} status={analysis.display.productivity?.status} />
+              </div>
+
+              <div style={{ display:'flex', alignItems:'center', gap:10 }} className="ia-in">
+                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+                <span style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.12em', whiteSpace:'nowrap' }}>Recommendation</span>
+                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+              </div>
+
+              {analysis.recommendation && (
+                <div className="ia-in">
+                  <RecommendationCard
+                    recommendation={analysis.recommendation}
+                    explanation={analysis.explanation}
+                    formData={form}
+                    sprintId={sprint?.id}
+                    spaceId={resolvedSpaceId}
+                    logId={analysis.log_id}
+                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); }}
+                  />
+                </div>
+              )}
+
+              {result?.requiresManual && (
+                <div style={{ background:'#f5f3ff', border:'1px solid #ddd6fe', borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'flex-start', gap:10 }} className="ia-in">
+                  <span style={{ fontSize:16 }}>✂️</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#5b21b6', marginBottom:3 }}>Manual Split Required</div>
+                    <div style={{ fontSize:12, color:'#6b7280' }}>{result.message}</div>
+                  </div>
+                </div>
+              )}
+
+              {result && (
+                <button onClick={() => { setAnalysis(null); setResult(null); setForm({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' }); }}
+                  style={{ width:'100%', padding:'10px 16px', background:'#f9fafb', border:'1px solid #e5e7eb', color:'#6b7280', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, transition:'all .2s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background='#f3f4f6'; e.currentTarget.style.color='#374151'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background='#f9fafb'; e.currentTarget.style.color='#6b7280'; }}
+                  className="ia-in"
+                >
+                  ↺ Analyze Another Ticket
+                </button>
+              )}
+
+              <div style={{ fontSize:10, color:'#d1d5db', textAlign:'right' }} className="ia-in">
+                Predictions generated by ML models · Indicative only
+              </div>
+            </>
+          )}
         </div>
       </div>
-
-      {/* ════ RIGHT — Results ════ */}
-      <div className="space-y-4">
-
-        {/* Empty state */}
-        {!analysis && !loading && (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center">
-              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">No Analysis Yet</h3>
-            <p className="text-gray-600">Fill in the form and click "Analyze Impact"</p>
-          </div>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">Running ML models…</p>
-            <p className="text-gray-400 text-sm mt-1">Effort · Schedule · Quality · Productivity</p>
-          </div>
-        )}
-
-        {/* Goal Alignment Results */}
-        {goalAlignment && (
-          <div className={`rounded-xl shadow-sm p-6 border-l-4 ${
-            goalAlignment.final_recommendation === 'ACCEPT' ? 'bg-green-50 border-green-500' :
-            goalAlignment.final_recommendation === 'CONSIDER' ? 'bg-blue-50 border-blue-500' :
-            goalAlignment.final_recommendation === 'EVALUATE' ? 'bg-amber-50 border-amber-500' :
-            'bg-red-50 border-red-500'
-          }`}>
-            <div className="flex items-start justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-800">Sprint Goal Alignment</h3>
-              <span className={`px-3 py-1 rounded-full text-sm font-bold ${
-                goalAlignment.final_recommendation === 'ACCEPT' ? 'bg-green-200 text-green-800' :
-                goalAlignment.final_recommendation === 'CONSIDER' ? 'bg-blue-200 text-blue-800' :
-                goalAlignment.final_recommendation === 'EVALUATE' ? 'bg-amber-200 text-amber-800' :
-                'bg-red-200 text-red-800'
-              }`}>
-                {goalAlignment.final_recommendation}
-              </span>
-            </div>
-
-            <p className="text-gray-700 mb-4">{goalAlignment.recommendation_reason}</p>
-
-            <div className="space-y-3 mb-4 text-sm">
-              <div className="bg-white bg-opacity-50 rounded p-3">
-                <div className="font-semibold text-gray-700 mb-1">Analysis</div>
-                <div className="text-gray-600">
-                  {goalAlignment.semantic_analysis.alignment_category}: {goalAlignment.semantic_analysis.reasoning}
-                </div>
-              </div>
-              <div className="bg-white bg-opacity-50 rounded p-3">
-                <div className="font-semibold text-gray-700 mb-1">Next Steps</div>
-                <div className="text-gray-600">{goalAlignment.next_steps}</div>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setGoalAlignment(null); setShowManualOverride(false); }}
-                className="flex-1 px-3 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors">
-                Clear
-              </button>
-              <button
-                onClick={() => setShowManualOverride(!showManualOverride)}
-                className="flex-1 px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 font-medium text-sm transition-colors">
-                {showManualOverride ? 'Hide Manual' : 'Manual Override'}
-              </button>
-            </div>
-
-            {showManualOverride && (
-              <div className="mt-4 pt-4 border-t border-gray-300">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Override Recommendation</label>
-                <select value={manualAlignment || goalAlignment.final_recommendation}
-                  onChange={e => setManualAlignment(e.target.value)}
-                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="ACCEPT">ACCEPT - Add to Sprint</option>
-                  <option value="CONSIDER">CONSIDER - Discuss in Team</option>
-                  <option value="EVALUATE">EVALUATE - Careful Review</option>
-                  <option value="DEFER">DEFER - Save for Later</option>
-                </select>
-                <p className="text-xs text-gray-600 mt-2">
-                  Reason for override: {manualAlignment ? `User selected ${manualAlignment}` : 'Not specified'}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Results */}
-        {analysis?.display && (
-          <>
-            <h2 className="text-xl font-bold text-gray-800">Impact Analysis Results</h2>
-
-            {[
-              { key: 'effort',       icon: '⏱️', label: 'Effort Estimate'     },
-              { key: 'schedule',     icon: '📅', label: 'Schedule Risk'       },
-              { key: 'productivity', icon: '📉', label: 'Productivity Impact' },
-              { key: 'quality',      icon: '🐛', label: 'Quality Risk'        },
-            ].map(({ key, icon, label }) => {
-              const m = analysis.display[key];
-              if (!m) return null;
-              return (
-                <div key={key} className={`border-2 rounded-xl p-5 ${getStatusColor(m.status)}`}>
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <div className="text-sm font-medium opacity-70 mb-1">{icon} {label}</div>
-                      <div className="text-2xl font-bold">{m.value}</div>
-                    </div>
-                    <span className="px-3 py-1 rounded-full text-sm font-semibold bg-white bg-opacity-50">
-                      {getStatusBadge(m.status)}
-                    </span>
-                  </div>
-                  <div className="text-sm font-semibold mb-1">{m.label}</div>
-                  <div className="text-sm opacity-80">{m.sub_text}</div>
-                </div>
-              );
-            })}
-
-            <div className="flex items-center gap-3 py-1">
-              <div className="flex-1 h-px bg-gray-200" />
-              <span className="text-xs font-bold tracking-widest text-gray-400">RECOMMENDATION</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-
-            {analysis.recommendation && (
-              <RecommendationCard
-                recommendation={analysis.recommendation}
-                explanation={analysis.explanation}
-                formData={formData}
-                sprintId={selectedSprint?.id}
-                spaceId={resolvedSpaceId}
-                logId={analysis.log_id}
-                onActionDone={(result) => {
-                  setActionResult(result);
-                  if (selectedSprint) loadSprintContext(selectedSprint.id);
-                }}
-              />
-            )}
-
-            {/* Split reminder */}
-            {actionResult?.requiresManual && (
-              <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800 flex items-start gap-2">
-                <span>✂️</span>
-                <div>
-                  <div className="font-bold mb-0.5">Manual Split Required</div>
-                  <div>{actionResult.message}</div>
-                </div>
-              </div>
-            )}
-
-            {/* Reset */}
-            {actionResult && (
-              <button
-                onClick={() => {
-                  setAnalysis(null); setActionResult(null);
-                  setFormData({ title: '', description: '', story_points: 5, priority: 'Medium', type: 'Task' });
-                }}
-                className="w-full border-2 border-gray-200 text-gray-600 font-semibold py-2.5 rounded-lg hover:bg-gray-50 text-sm">
-                ↺ Analyze Another Ticket
-              </button>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
