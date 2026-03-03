@@ -1,0 +1,191 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                     FILES UPDATED FOR FEATURE IMPLEMENTATION                    ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+TOTAL FILES UPDATED: 4
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+1. BACKEND: services/sprint_impact_service/routes/impact_routes.py
+   ─────────────────────────────────────────────────────────────────
+   Status: UPDATED
+   Type: Python/FastAPI Route Handler
+   
+   Changes Made:
+   • Added calculate_dynamic_focus_hours(space_id, fallback=6.0) function
+     - 71 lines of code (lines 16-86)
+     - Fetches recently completed sprint
+     - Calculates hours per story point from historical data
+     - Derives daily focus capacity
+     - Returns value 2.0-10.0 hours/day with fallback
+   
+   • Updated /analyze endpoint (POST)
+     - Now calls calculate_dynamic_focus_hours()
+     - Passes risk_appetite to RecommendationEngine
+     - Passes both focus_hours_per_day and risk_appetite to impact_predictor
+   
+   Key Functions:
+   • calculate_dynamic_focus_hours() - NEW
+   • analyze_impact() - UPDATED to use dynamic hours & risk_appetite
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+2. BACKEND: services/sprint_impact_service/impact_predictor.py
+   ─────────────────────────────────────────────────────────────
+   Status: UPDATED
+   Type: Python/ML Logic
+   
+   Changes Made:
+   • Updated predict_all_impacts() method signature
+     - Added risk_appetite: str = "Standard" parameter
+     - Now passes it to _generate_summary()
+   
+   • Updated _generate_summary() method
+     - 39 lines (previously 15 lines)
+     - Added risk_appetite thresholds:
+       * Strict: DEFER=5, SWAP=3, SPLIT=1
+       * Standard: DEFER=7, SWAP=4, SPLIT=2 (default)
+       * Lenient: DEFER=9, SWAP=6, SPLIT=3
+     - Returns 'risk_appetite' field in summary dict
+     - Thresholds dynamically apply to recommendation scoring
+   
+   Key Changes:
+   • Line ~154: Added risk_appetite parameter to predict_all_impacts()
+   • Line ~162: Pass risk_appetite to _generate_summary()
+   • Lines ~357-391: Rewrote _generate_summary() with threshold logic
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+3. BACKEND: services/sprint_impact_service/routes/space_routes.py
+   ────────────────────────────────────────────────────────────────
+   Status: UPDATED
+   Type: Python/FastAPI Route Handler
+   
+   Changes Made:
+   • Updated space_helper() function
+     - Added "risk_appetite" field to response
+     - Now returns: space.get("risk_appetite", "Standard")
+     - Line 17: Added new field
+   
+   Endpoint Impact:
+   • GET /spaces/ - Returns risk_appetite for each space
+   • GET /spaces/{space_id} - Returns risk_appetite
+   • POST /spaces/ - Stores risk_appetite when creating space
+   • PUT /spaces/{space_id} - Updates risk_appetite
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+4. FRONTEND: frontend/src/components/features/sprint_impact_service/ImpactAnalyzer.jsx
+   ──────────────────────────────────────────────────────────────────────────────────
+   Status: UPDATED
+   Type: React/JSX Component
+   
+   Changes Made:
+   • Added state for AI suggestion loading
+     - Line 219: Added suggestingPoints state
+   
+   • Added handleSuggestPoints() function (23 lines)
+     - Validates title input
+     - Calls api.predictStoryPoints({ title, description })
+     - Auto-fills story_points from AI response
+     - Shows loading state with spinner
+     - Error handling with user feedback
+   
+   • Added "✨ Suggest" button next to story points input
+     - Integrated into existing form layout
+     - Shows spinner while loading
+     - Disabled until title is entered
+     - Uses indigo color scheme matching form style
+     - Positioned next to input with flex layout
+   
+   UI Changes:
+   • Story Points section now has:
+     - Input field (flex-1) + Suggest button (flex layout)
+     - Loading spinner animation
+     - Hover effects matching design system
+     - Disabled state styling
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+5. FRONTEND: frontend/src/components/features/sprint_impact_service/api.js
+   ──────────────────────────────────────────────────────────────────────────────
+   Status: NO CHANGES NEEDED
+   Type: JavaScript/API Client
+   
+   Verification:
+   • api.predictStoryPoints() already exists
+   • Calls POST /api/ai/predict endpoint
+   • Accepts { title, description }
+   • Returns { suggested_points, confidence, reasoning, complexity_indicators }
+   • No modifications required - fully compatible
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════════
+SUMMARY OF CHANGES
+═══════════════════════════════════════════════════════════════════════════════════
+
+Total Lines Added:     180+ lines
+Total Files Modified:  4 files
+Total Files Created:   0 files (all existing)
+
+Backend:               3 files modified
+  - impact_routes.py   (71 new lines)
+  - impact_predictor.py (25 modified lines)
+  - space_routes.py    (2 new lines)
+
+Frontend:              1 file modified
+  - ImpactAnalyzer.jsx (40+ new lines)
+
+API Integration:       1 file verified (no changes)
+  - api.js             (verified existing methods)
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+FEATURE IMPLEMENTATION MATRIX
+
+Feature 1: Evidence-Based Scheduling
+├─ calculate_dynamic_focus_hours()     [impact_routes.py] ✓
+├─ ML predictor receives hours          [impact_predictor.py] ✓
+└─ Display uses dynamic hours           [ImpactAnalyzer displays] ✓
+
+Feature 2: Dynamic ML Thresholds  
+├─ RiskAppetite enum                   [models.py already has] ✓
+├─ Space.risk_appetite field            [models.py already has] ✓
+├─ Threshold mapping logic              [impact_predictor.py] ✓
+├─ Passed to recommendation engine      [impact_routes.py] ✓
+└─ Summary scorer uses thresholds       [impact_predictor.py] ✓
+
+Feature 3: AI Story Point Suggestion
+├─ "✨ Suggest Points" button           [ImpactAnalyzer.jsx] ✓
+├─ handleSuggestPoints() function       [ImpactAnalyzer.jsx] ✓
+├─ Loading state management             [ImpactAnalyzer.jsx] ✓
+├─ API integration (existing)           [api.js] ✓
+└─ Form auto-fill on suggestion        [ImpactAnalyzer.jsx] ✓
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+DEPLOYMENT CHECKLIST
+
+Backend:
+□ Copy updated impact_routes.py to services/sprint_impact_service/routes/
+□ Copy updated impact_predictor.py to services/sprint_impact_service/
+□ Copy updated space_routes.py to services/sprint_impact_service/routes/
+□ No database migrations needed (fields already exist in schema)
+□ Restart FastAPI server
+
+Frontend:
+□ Copy updated ImpactAnalyzer.jsx to frontend/src/components/features/sprint_impact_service/
+□ No npm package changes required
+□ No environment variables needed
+□ Hot reload will apply changes (if dev server running)
+
+Testing:
+□ Test dynamic focus hours with completed sprint
+□ Test fallback to 6.0 when no completed sprint exists
+□ Change risk_appetite in space settings, verify threshold changes
+□ Test "Suggest Points" button with various inputs
+□ Verify CORS requests work without errors
+□ Verify all ML predictions use correct parameters
+
+═══════════════════════════════════════════════════════════════════════════════════

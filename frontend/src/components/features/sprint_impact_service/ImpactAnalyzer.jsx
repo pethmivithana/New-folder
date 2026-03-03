@@ -216,6 +216,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [loading,       setLoading]       = useState(false);
   const [sprintContext, setSprintContext]  = useState(null);
   const [actionResult,  setActionResult]  = useState(null);
+  const [suggestingPoints, setSuggestingPoints] = useState(false);
 
   // Auto-select active sprint on load
   useEffect(() => {
@@ -242,6 +243,29 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
     setAnalysis(null);
     setActionResult(null);
     if (sprint) loadSprintContext(sprint.id);
+  };
+
+  const handleSuggestPoints = async () => {
+    if (!formData.title.trim()) {
+      alert('Please enter a title first');
+      return;
+    }
+    
+    setSuggestingPoints(true);
+    try {
+      const result = await api.predictStoryPoints({
+        title: formData.title,
+        description: formData.description,
+      });
+      // Use median suggestion or suggested_points
+      const suggestedValue = result.suggested_points || result.median || 5;
+      setFormData({ ...formData, story_points: suggestedValue });
+    } catch (err) {
+      console.error('Failed to suggest points:', err);
+      alert('Could not suggest points: ' + err.message);
+    } finally {
+      setSuggestingPoints(false);
+    }
   };
 
   const handleAnalyze = async () => {
@@ -362,9 +386,21 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Story Points</label>
-              <input type="number" min="1" max="21" value={formData.story_points}
-                onChange={e => setFormData({ ...formData, story_points: parseInt(e.target.value) || 5 })}
-                className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+              <div className="flex gap-2">
+                <input type="number" min="1" max="21" value={formData.story_points}
+                  onChange={e => setFormData({ ...formData, story_points: parseInt(e.target.value) || 5 })}
+                  className="flex-1 bg-white text-gray-900 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                <button
+                  onClick={handleSuggestPoints}
+                  disabled={suggestingPoints}
+                  className="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-medium rounded-lg text-sm flex items-center gap-1 disabled:opacity-50 whitespace-nowrap transition-colors">
+                  {suggestingPoints ? (
+                    <><div className="animate-spin h-4 w-4 border-2 border-indigo-700 border-t-transparent rounded-full" /></>
+                  ) : (
+                    <>✨ Suggest</>
+                  )}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>

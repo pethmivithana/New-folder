@@ -14,6 +14,7 @@ def space_helper(space) -> dict:
         "description":         space["description"],
         "max_assignees":       space["max_assignees"],
         "focus_hours_per_day": space.get("focus_hours_per_day", 6.0),
+        "risk_appetite":       space.get("risk_appetite", "Standard"),
         "created_at":          space["created_at"],
         "updated_at":          space["updated_at"],
     }
