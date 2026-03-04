@@ -21,6 +21,7 @@ export default function Dashboard({ space, onBack }) {
   const [selectedSprint, setSelectedSprint] = useState(null);
   const [finishingSprint, setFinishingSprint] = useState(null);
   const [activeTab, setActiveTab] = useState('scrums');
+  const [viewingKanbanSprint, setViewingKanbanSprint] = useState(null);
 
   useEffect(() => {
     if (space?.id) {
@@ -91,8 +92,11 @@ export default function Dashboard({ space, onBack }) {
   };
 
   const handleOpenKanban = (sprint) => {
-    setSelectedSprint(sprint);
-    setShowKanban(true);
+    setViewingKanbanSprint(sprint);
+  };
+
+  const handleCloseKanban = () => {
+    setViewingKanbanSprint(null);
   };
 
   const getSprintItems = (sprintId) => backlogItems.filter(item => item.sprint_id === sprintId);
@@ -120,6 +124,13 @@ export default function Dashboard({ space, onBack }) {
     const icons = { 'Task': '📋', 'Subtask': '📝', 'Bug': '🐛', 'Story': '📖' };
     return icons[type] || '📋';
   };
+
+  // If viewing Kanban board in full-screen, show it instead of dashboard
+  if (viewingKanbanSprint) {
+    return (
+      <KanbanBoard sprint={viewingKanbanSprint} onClose={handleCloseKanban} onUpdate={loadData} />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -390,9 +401,7 @@ export default function Dashboard({ space, onBack }) {
       {showFinishModal && finishingSprint && (
         <FinishSprintModal sprint={finishingSprint} sprints={sprints.filter(s => s.status === 'Planned' && s.id !== finishingSprint.id)} onClose={() => { setShowFinishModal(false); setFinishingSprint(null); }} onFinish={loadData} />
       )}
-      {showKanban && selectedSprint && (
-        <KanbanBoard sprint={selectedSprint} onClose={() => setShowKanban(false)} onUpdate={loadData} />
-      )}
+
     </div>
   );
 }
