@@ -109,12 +109,12 @@ export default function KanbanBoard({ sprint, onClose, onUpdate }) {
       </div>
 
       {/* Kanban Board */}
-      <div className="flex-1 overflow-x-auto p-6 bg-gray-50">
-        <div className="grid grid-cols-4 gap-6 h-full min-w-max">
+      <div className="flex-1 p-6 bg-gray-50 overflow-hidden">
+        <div className="grid grid-cols-4 gap-4 h-full">
             {columns.map((column) => (
               <div
                 key={column.id}
-                className="flex flex-col min-w-[280px]"
+                className="flex flex-col min-h-0"
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, column.id)}
               >
@@ -127,7 +127,7 @@ export default function KanbanBoard({ sprint, onClose, onUpdate }) {
                   </h3>
                 </div>
 
-                <div className="flex-1 space-y-3 overflow-y-auto pr-2">
+                <div className="flex-1 space-y-3 overflow-y-auto pr-2 min-h-0">
                   {getItemsByStatus(column.id).map((item) => (
                     <div
                       key={item.id}
