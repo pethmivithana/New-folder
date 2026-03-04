@@ -245,6 +245,11 @@ class ImpactPredictor:
             model = self.models['schedule_risk']
             proba = model.predict_proba(X)[0]
 
+            # Debug: Log model info
+            print(f"[v0] Model classes_: {model.classes_}", file=sys.stderr)
+            print(f"[v0] Probabilities: {proba}", file=sys.stderr)
+            print(f"[v0] Prediction sum: {proba.sum()}", file=sys.stderr)
+
             # BUG FIX: Dynamically check model.classes_ instead of hardcoded indices
             # Find indices for 'Critical Risk' and 'High Risk' classes
             classes = model.classes_
@@ -252,10 +257,13 @@ class ImpactPredictor:
             high_idx = None
             
             for idx, class_label in enumerate(classes):
+                print(f"[v0] Class {idx}: {class_label} (type: {type(class_label).__name__})", file=sys.stderr)
                 if class_label == 'Critical Risk':
                     critical_idx = idx
                 elif class_label == 'High Risk':
                     high_idx = idx
+            
+            print(f"[v0] Critical index: {critical_idx}, High index: {high_idx}", file=sys.stderr)
             
             # Spillover probability = P(Critical Risk) + P(High Risk)
             spillover_prob_value = 0.0
@@ -264,9 +272,13 @@ class ImpactPredictor:
             if high_idx is not None:
                 spillover_prob_value += float(proba[high_idx])
             
+            print(f"[v0] Spillover prob value before percentage: {spillover_prob_value}", file=sys.stderr)
             spillover_prob = _cap(spillover_prob_value * 100)
+            print(f"[v0] Spillover prob after percentage: {spillover_prob}", file=sys.stderr)
+            
             dominant_idx   = int(np.argmax(proba))
             dominant_label = SCHEDULE_LABEL_MAP.get(dominant_idx, 'Unknown')
+            print(f"[v0] Dominant class: {dominant_idx} -> {dominant_label}", file=sys.stderr)
 
             if spillover_prob > 50:
                 status, label = 'critical', 'High Risk'
@@ -332,7 +344,7 @@ class ImpactPredictor:
             print(f"[DEBUG] Feature dtype: {X.dtype if 'X' in locals() and hasattr(X, 'dtype') else 'unknown'}\n")
             return self._fallback_quality_risk()
 
-    # ── 4. Productivity — hybrid XGBoost + MLP ensemble ───────────────────────
+    # ── 4. Productivity — hybrid XGBoost + MLP ensemble ─────────────────���─────
     def _predict_productivity(self, item_data: dict, sprint_context: dict) -> dict:
         try:
             X = build_productivity_features(item_data, sprint_context)
