@@ -306,6 +306,214 @@ function RiskBanner({ status }) {
   );
 }
 
+// ─── STAlignmentCard (Phase 1 — alignment state only, no action verbs) ───────
+function STAlignmentCard({ result, onClear }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const PALETTE = {
+    CRITICAL_BLOCKER: { accent: '#dc2626', light: '#fef2f2', border: '#fecaca', chipBg: '#fee2e2', chipText: '#991b1b' },
+    STRONGLY_ALIGNED: { accent: '#059669', light: '#ecfdf5', border: '#a7f3d0', chipBg: '#d1fae5', chipText: '#065f46' },
+    PARTIALLY_ALIGNED:{ accent: '#2563eb', light: '#eff6ff', border: '#bfdbfe', chipBg: '#dbeafe', chipText: '#1e3a8a' },
+    WEAKLY_ALIGNED:   { accent: '#d97706', light: '#fffbeb', border: '#fde68a', chipBg: '#fef3c7', chipText: '#92400e' },
+    UNALIGNED:        { accent: '#6b7280', light: '#f9fafb', border: '#e5e7eb', chipBg: '#f3f4f6', chipText: '#374151' },
+  };
+
+  const OVERLAP_LABEL = { high: 'High', medium: 'Medium', low: 'Low', none: 'None' };
+
+  if (!result?.alignment_state) return null;
+
+  const p   = PALETTE[result.alignment_state] ?? PALETTE.UNALIGNED;
+  const pct = result.semantic_score_pct ?? 0;
+  const barColor = pct >= 55 ? '#059669' : pct >= 35 ? '#d97706' : '#dc2626';
+
+  return (
+    <div style={{ background: p.light, border: `1.5px solid ${p.border}`, borderRadius: 12, padding: '14px 16px', position: 'relative' }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#fff', border: `1px solid ${p.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+            🎯
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 2 }}>
+              Phase 1 · Sprint Alignment · <span style={{ color: '#6b7280', fontStyle: 'italic', textTransform: 'none', letterSpacing: 0 }}>{result.model_name}</span>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: p.accent }}>{result.alignment_label ?? result.alignment_state}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ textAlign: 'center', background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '4px 10px', minWidth: 52 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: barColor, lineHeight: 1 }}>{pct}%</div>
+            <div style={{ fontSize: 9, color: '#9ca3af', fontWeight: 700, letterSpacing: '0.06em', marginTop: 1 }}>MATCH</div>
+          </div>
+          <button onClick={onClear} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 15, padding: 4 }}>✕</button>
+        </div>
+      </div>
+
+      {/* Score bar */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Semantic similarity score</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: barColor }}>{pct} / 100</span>
+        </div>
+        <div style={{ height: 7, background: '#e5e7eb', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 4, transition: 'width .9s cubic-bezier(.16,1,.3,1)' }} />
+        </div>
+        <div style={{ position: 'relative', height: 14 }}>
+          {[{ v: 35, label: '35%' }, { v: 55, label: '55%' }].map(({ v, label }) => (
+            <div key={v} style={{ position: 'absolute', left: `${v}%`, top: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', transform: 'translateX(-50%)' }}>
+              <div style={{ width: 1, height: 5, background: '#d1d5db' }} />
+              <span style={{ fontSize: 9, color: '#9ca3af' }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Chips */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {result.is_critical_blocker && (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>🚨 BLOCKER</span>
+        )}
+        <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, background: result.epic_aligned ? '#d1fae5' : '#f3f4f6', color: result.epic_aligned ? '#065f46' : '#6b7280', border: `1px solid ${result.epic_aligned ? '#a7f3d0' : '#e5e7eb'}` }}>
+          Epic {result.epic_aligned ? '✓ aligned' : '✗ mismatch'}
+        </span>
+        <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, background: result.component_overlap === 'none' ? '#f3f4f6' : '#dbeafe', color: result.component_overlap === 'none' ? '#6b7280' : '#1e3a8a', border: `1px solid ${result.component_overlap === 'none' ? '#e5e7eb' : '#bfdbfe'}` }}>
+          Components: {OVERLAP_LABEL[result.component_overlap] ?? result.component_overlap}
+        </span>
+      </div>
+
+      {/* Expandable */}
+      <button onClick={() => setExpanded(x => !x)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: p.accent, display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
+        <span style={{ display: 'inline-block', transition: 'transform .2s', transform: expanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+        {expanded ? 'Hide detail' : 'Show layer analysis'}
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>L1 · Blocker Detection</div>
+            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{result.blocker_reason}</p>
+          </div>
+          <div style={{ background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>L2 · Semantic Similarity</div>
+            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{result.semantic_reasoning}</p>
+          </div>
+          <div style={{ background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>L3 · Metadata Traceability</div>
+            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{result.metadata_details}</p>
+            {result.matched_components?.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                {result.matched_components.map(c => (
+                  <span key={c} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe', fontWeight: 600 }}>{c}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DecisionEngineCard (Phase 3 — AI recommendation + manual override) ───────
+function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onActionDone }) {
+  const [doing,    setDoing]    = useState(false);
+  const [done,     setDone]     = useState(false);
+  const [doneMsg,  setDoneMsg]  = useState('');
+  const [override, setOverride] = useState(null);  // user's manual choice
+
+  if (!decision?.action) return null;
+
+  const activeAction = override ?? decision.action;
+  const meta = ACTION_META[activeAction] ?? ACTION_META.DEFER;
+  const allActions = ['ADD', 'DEFER', 'SPLIT', 'SWAP'];
+
+  const doAction = async (a) => {
+    setDoing(true);
+    try {
+      const r = await executeAction(a, null, sprintId, spaceId, formData);
+      await logFeedback(logId, true, a === decision.action ? 'FOLLOWED_RECOMMENDATION' : 'OVERRIDDEN');
+      setDone(true); setDoneMsg(r.message); onActionDone?.(r);
+    } catch (e) { alert('Action failed: ' + e.message); }
+    finally { setDoing(false); }
+  };
+
+  return (
+    <div style={{ background: meta.bg, border: `1.5px solid ${meta.border}`, borderRadius: 14, padding: 20 }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 46, height: 46, borderRadius: 12, background: '#fff', border: `1px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
+            {meta.icon}
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 2 }}>Phase 3 · Decision Engine</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: meta.color }}>🤖 AI Recommends: {decision.action}</div>
+          </div>
+        </div>
+        <span style={{ fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 6, background: '#fff', color: meta.color, border: `1px solid ${meta.border}`, letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+          {decision.action}
+        </span>
+      </div>
+
+      {/* Short title */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: meta.color, marginBottom: 8 }}>{decision.short_title}</div>
+
+      {/* Reasoning */}
+      <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.7, marginBottom: 10 }}>{decision.reasoning}</p>
+
+      {/* Rule triggered chip */}
+      <div style={{ fontSize: 10, color: '#6b7280', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', display: 'inline-block', marginBottom: 14 }}>
+        ⚙️ {decision.rule_triggered}
+      </div>
+
+      {done ? (
+        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#065f46', display: 'flex', alignItems: 'center', gap: 8 }}>
+          ✅ {doneMsg}
+        </div>
+      ) : (
+        <>
+          {/* Primary CTA — active action (AI recommendation or override) */}
+          <button onClick={() => doAction(activeAction)} disabled={doing}
+            style={{ width: '100%', padding: '12px 16px', background: meta.color, border: 'none', color: '#fff', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 14, opacity: doing ? 0.7 : 1, transition: 'all .2s', boxShadow: `0 3px 10px ${meta.color}44` }}
+          >
+            {doing
+              ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.35)', borderTopColor: '#fff', borderRadius: '50%', animation: 'ia-spin .7s linear infinite' }} /> Applying…</>
+              : <>{meta.icon} {meta.label}</>}
+          </button>
+
+          {/* Manual override section */}
+          <div style={{ borderTop: `1px dashed ${meta.border}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              📋 Product Owner Override
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {allActions.map(a => {
+                const m = ACTION_META[a];
+                const isSelected = a === activeAction;
+                return (
+                  <button key={a} onClick={() => setOverride(a === decision.action ? null : a)} disabled={doing}
+                    style={{ fontSize: 11, fontWeight: 700, padding: '6px 14px', background: isSelected ? m.color : m.bg, border: `1.5px solid ${isSelected ? m.color : m.border}`, color: isSelected ? '#fff' : m.color, borderRadius: 7, cursor: 'pointer', opacity: doing ? 0.5 : 1, transition: 'all .15s' }}
+                  >
+                    {m.icon} {a}
+                  </button>
+                );
+              })}
+            </div>
+            {override && override !== decision.action && (
+              <div style={{ marginTop: 8, fontSize: 11, color: '#d97706', fontStyle: 'italic' }}>
+                ⚠️ Overriding AI recommendation ({decision.action} → {override})
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── ImpactAnalyzer (main) ────────────────────────────────────────────────────
 export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [sprint,    setSprint]    = useState(null);
@@ -314,9 +522,12 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [loading,   setLoading]   = useState(false);
   const [ctx,       setCtx]       = useState(null);
   const [result,    setResult]    = useState(null);
-  const [suggesting,setSuggesting]= useState(false);
-  const [alignment, setAlignment] = useState(null);
-  const [aligning,  setAligning]  = useState(false);
+  const [suggesting,  setSuggesting]  = useState(false);
+  const [alignment,   setAlignment]   = useState(null);
+  const [aligning,    setAligning]    = useState(false);
+  const [stAlignment, setStAlignment] = useState(null);   // Phase 1 result
+  const [stAligning,  setStAligning]  = useState(false);
+  const [decision,    setDecision]    = useState(null);   // Phase 3 result
   const ref = useRef(null);
 
   useEffect(() => {
@@ -340,6 +551,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
     finally { setSuggesting(false); }
   };
 
+  // Legacy classical alignment (kept, not surfaced in main UI)
   const checkAlignment = async () => {
     if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
     setAligning(true);
@@ -350,12 +562,52 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
     finally { setAligning(false); }
   };
 
+  // NEW: Sentence-Transformer alignment — deterministic, zero-latency
+  const checkSTAlignment = async () => {
+    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title first.'); return; }
+    setStAligning(true);
+    setStAlignment(null);
+    try {
+      const r = await api.checkSprintAlignment({
+        sprint_goal:        sprint.goal || '',
+        ticket_title:       form.title,
+        ticket_description: form.description,
+        priority:           form.priority,
+        ticket_epic:        null,
+        sprint_epic:        null,
+        ticket_components:  [],
+        sprint_components:  [],
+      });
+      setStAlignment(r);
+    } catch (e) { alert('Alignment check failed: ' + e.message); }
+    finally { setStAligning(false); }
+  };
+
   const analyze = async () => {
     if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
-    setLoading(true); setAnalysis(null); setResult(null);
+    setLoading(true); setAnalysis(null); setResult(null); setDecision(null);
     try {
       const r = await api.analyzeImpact({ sprint_id: sprint.id, title: form.title, description: form.description, story_points: form.story_points, priority: form.priority, type: form.type });
       setAnalysis(r);
+
+      // Phase 3 — call Decision Engine with Phase 1 alignment_state + Phase 2 outputs
+      const effortSp = r.ml_raw?.effort?.median_sp ?? form.story_points;
+      const freeCapacity = Math.max(0, (ctx?.team_velocity || 30) - (ctx?.current_load || 0));
+      const scheduleProb = r.ml_raw?.schedule_risk?.probability ?? 0;
+      const riskLevel = scheduleProb > 0.65 ? 'HIGH' : scheduleProb > 0.40 ? 'MEDIUM' : 'LOW';
+      const alignState = stAlignment?.alignment_state ?? 'STRONGLY_ALIGNED';
+
+      try {
+        const d = await api.getDecision({
+          alignment_state: alignState,
+          effort_sp:       effortSp,
+          free_capacity:   freeCapacity,
+          priority:        form.priority,
+          risk_level:      riskLevel,
+        });
+        setDecision(d);
+      } catch (_) { /* decision engine optional — fall back to existing recommendation */ }
+
       setTimeout(() => ref.current?.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
     } catch (e) { alert('Analysis failed: ' + e.message); }
     finally { setLoading(false); }
@@ -459,20 +711,31 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
             </div>
           </div>
 
-          {/* Buttons */}
-          <button onClick={checkAlignment} disabled={aligning || !sprint}
-            style={{ padding:'10px 16px', background:'#fff', border:'1.5px solid #06b6d4', color:'#0891b2', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(aligning||!sprint)?.5:1, transition:'all .2s' }}
+          {/* ── Action buttons ── */}
+
+          {/* NEW: Sentence-Transformer alignment check */}
+          <button onClick={checkSTAlignment} disabled={stAligning || !sprint}
+            style={{ padding:'10px 16px', background:'#fff', border:'1.5px solid #06b6d4', color:'#0891b2', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(stAligning||!sprint)?0.5:1, transition:'all .2s', boxShadow: stAligning ? 'none' : '0 1px 4px rgba(6,182,212,.15)' }}
           >
-            {aligning ? <><div style={{ width:13, height:13, border:'2px solid #a5f3fc', borderTopColor:'#0891b2', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Checking…</> : <>🎯 Check Sprint Goal Alignment</>}
+            {stAligning
+              ? <><div style={{ width:13, height:13, border:'2px solid #a5f3fc', borderTopColor:'#0891b2', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Checking alignment…</>
+              : <>🎯 Check Sprint Alignment</>}
           </button>
 
+          {/* ST result card — shown inline, dismissible */}
+          {stAlignment && (
+            <STAlignmentCard
+              result={stAlignment}
+              onClear={() => setStAlignment(null)}
+            />
+          )}
+
+          {/* Heavy ML impact analysis */}
           <button onClick={analyze} disabled={loading || !sprint}
-            style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
+            style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?0.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
           >
             {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : <>⚡ Analyze Impact</>}
           </button>
-
-          {alignment && <GoalAlignmentStrip goalAlignment={alignment} onClear={() => setAlignment(null)} />}
         </div>
 
         {/* ═══ RIGHT — Results ═══ */}
@@ -536,7 +799,22 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
                 <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
               </div>
 
-              {analysis.recommendation && (
+              {/* Phase 3 Decision Engine card (preferred) */}
+              {decision && (
+                <div className="ia-in">
+                  <DecisionEngineCard
+                    decision={decision}
+                    formData={form}
+                    sprintId={sprint?.id}
+                    spaceId={resolvedSpaceId}
+                    logId={analysis.log_id}
+                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); }}
+                  />
+                </div>
+              )}
+
+              {/* Fallback: existing RecommendationCard if decision engine not available */}
+              {!decision && analysis.recommendation && (
                 <div className="ia-in">
                   <RecommendationCard
                     recommendation={analysis.recommendation}
@@ -561,7 +839,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
               )}
 
               {result && (
-                <button onClick={() => { setAnalysis(null); setResult(null); setForm({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' }); }}
+                <button onClick={() => { setAnalysis(null); setResult(null); setDecision(null); setForm({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' }); }}
                   style={{ width:'100%', padding:'10px 16px', background:'#f9fafb', border:'1px solid #e5e7eb', color:'#6b7280', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, transition:'all .2s' }}
                   onMouseEnter={e => { e.currentTarget.style.background='#f3f4f6'; e.currentTarget.style.color='#374151'; }}
                   onMouseLeave={e => { e.currentTarget.style.background='#f9fafb'; e.currentTarget.style.color='#6b7280'; }}

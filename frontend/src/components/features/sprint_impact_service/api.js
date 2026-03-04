@@ -142,6 +142,87 @@ class ApiClient {
   async analyzeSprintGoalAlignment(data) {
     return this.request('/ai/analyze-sprint-goal-alignment', { method: 'POST', body: JSON.stringify(data) });
   }
+
+  /**
+   * Phase 1 — Check sprint goal alignment using the local Sentence-Transformer
+   * (all-MiniLM-L6-v2) 3-layer pipeline.
+   *
+   * Returns an alignment_state (descriptive only — no action verbs):
+   *   CRITICAL_BLOCKER | STRONGLY_ALIGNED | PARTIALLY_ALIGNED | WEAKLY_ALIGNED | UNALIGNED
+   *
+   * @param {Object}   data
+   * @param {string}   data.sprint_goal          – active sprint goal text
+   * @param {string}   data.ticket_title         – new ticket title
+   * @param {string}   [data.ticket_description] – ticket description (optional)
+   * @param {string}   data.priority             – "Critical"|"Blocker"|"High"|"Medium"|"Low"
+   * @param {string}   [data.ticket_epic]        – epic the ticket belongs to (optional)
+   * @param {string}   [data.sprint_epic]        – primary epic of the sprint (optional)
+   * @param {string[]} [data.ticket_components]  – component tags for the ticket (optional)
+   * @param {string[]} [data.sprint_components]  – component tags for the sprint (optional)
+   *
+   * @returns {Promise<{
+   *   is_critical_blocker: boolean,
+   *   blocker_reason:      string,
+   *   semantic_score:      number,    // 0-1, 4 d.p.
+   *   semantic_score_pct:  number,    // 0-100 integer for display
+   *   alignment_category:  string,    // "HIGHLY_RELEVANT" | "TANGENTIAL" | "UNRELATED"
+   *   semantic_reasoning:  string,
+   *   epic_aligned:        boolean,
+   *   component_overlap:   string,    // "high" | "medium" | "low" | "none"
+   *   matched_components:  string[],
+   *   metadata_details:    string,
+   *   alignment_state:     string,    // "CRITICAL_BLOCKER" | "STRONGLY_ALIGNED" | "PARTIALLY_ALIGNED" | "WEAKLY_ALIGNED" | "UNALIGNED"
+   *   alignment_label:     string,    // e.g. "Strongly Aligned"
+   *   model_name:          string,    // "all-MiniLM-L6-v2"
+   * }>}
+   */
+  async checkSprintAlignment(data) {
+    return this.request('/ai/st-align-sprint-goal', {
+      method: 'POST',
+      body: JSON.stringify({
+        sprint_goal:        data.sprint_goal        ?? '',
+        ticket_title:       data.ticket_title       ?? '',
+        ticket_description: data.ticket_description ?? '',
+        priority:           data.priority           ?? 'Medium',
+        ticket_epic:        data.ticket_epic        ?? null,
+        sprint_epic:        data.sprint_epic        ?? null,
+        ticket_components:  data.ticket_components  ?? [],
+        sprint_components:  data.sprint_components  ?? [],
+      }),
+    });
+  }
+
+  /**
+   * Phase 3 — Decision Engine.
+   * Combines Phase 1 alignment_state + Phase 2 effort/risk + sprint capacity
+   * to produce a single Agile action: ADD | DEFER | SPLIT | SWAP.
+   *
+   * @param {Object} data
+   * @param {string} data.alignment_state – from Phase 1 checkSprintAlignment().alignment_state
+   * @param {number} data.effort_sp       – estimated story points (from Phase 2 ML model)
+   * @param {number} data.free_capacity   – remaining sprint capacity (team_velocity - current_load)
+   * @param {string} data.priority        – "Low" | "Medium" | "High" | "Critical"
+   * @param {string} data.risk_level      – "LOW" | "MEDIUM" | "HIGH" (derived from schedule risk)
+   *
+   * @returns {Promise<{
+   *   action:          string,  // "ADD" | "DEFER" | "SPLIT" | "SWAP"
+   *   rule_triggered:  string,  // e.g. "Rule 5 - Aligned + fits capacity"
+   *   reasoning:       string,  // full explanation for the UI card
+   *   short_title:     string,  // e.g. "Good Fit - Add to Sprint"
+   * }>}
+   */
+  async getDecision(data) {
+    return this.request('/ai/decide', {
+      method: 'POST',
+      body: JSON.stringify({
+        alignment_state: data.alignment_state ?? 'STRONGLY_ALIGNED',
+        effort_sp:       data.effort_sp       ?? 5,
+        free_capacity:   data.free_capacity   ?? 10,
+        priority:        data.priority        ?? 'Medium',
+        risk_level:      data.risk_level      ?? 'LOW',
+      }),
+    });
+  }
 }
 
 export default new ApiClient();
