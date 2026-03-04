@@ -242,11 +242,29 @@ class ImpactPredictor:
     def _predict_schedule_risk(self, item_data: dict, sprint_context: dict) -> dict:
         try:
             X     = build_schedule_risk_features(item_data, sprint_context)
-            proba = self.models['schedule_risk'].predict_proba(X)[0]
+            model = self.models['schedule_risk']
+            proba = model.predict_proba(X)[0]
 
-            # Classes: 0=Critical Risk, 1=High Risk, 2=Low Risk, 3=Medium Risk
-            # Spillover probability = P(Critical) + P(High)
-            spillover_prob = _cap(float((proba[0] + proba[1]) * 100))
+            # BUG FIX: Dynamically check model.classes_ instead of hardcoded indices
+            # Find indices for 'Critical Risk' and 'High Risk' classes
+            classes = model.classes_
+            critical_idx = None
+            high_idx = None
+            
+            for idx, class_label in enumerate(classes):
+                if class_label == 'Critical Risk':
+                    critical_idx = idx
+                elif class_label == 'High Risk':
+                    high_idx = idx
+            
+            # Spillover probability = P(Critical Risk) + P(High Risk)
+            spillover_prob_value = 0.0
+            if critical_idx is not None:
+                spillover_prob_value += float(proba[critical_idx])
+            if high_idx is not None:
+                spillover_prob_value += float(proba[high_idx])
+            
+            spillover_prob = _cap(spillover_prob_value * 100)
             dominant_idx   = int(np.argmax(proba))
             dominant_label = SCHEDULE_LABEL_MAP.get(dominant_idx, 'Unknown')
 
