@@ -121,13 +121,16 @@ def seed_space(db) -> str:
     
     return space_id
 
-def seed_completed_sprints(db, space_id: str):
+def seed_completed_sprints(db, space_id: str) -> dict:
     """
     Create 3 completed sprints with realistic burndown histories.
     
     Sprint 1: Perfect linear burn (25 SP planned, 25 SP completed)
     Sprint 2: Flatline pattern (30 SP planned, 22 SP completed - spillover)
     Sprint 3: Perfect linear burn (20 SP planned, 20 SP completed)
+    
+    Returns:
+        Dictionary mapping sprint names to sprint_ids for historical backlog creation
     """
     print("\n[2] Seeding Completed Sprints...")
     
@@ -165,7 +168,7 @@ def seed_completed_sprints(db, space_id: str):
     ]
     
     now = datetime.now()
-    sprint_ids = []
+    sprint_ids_dict = {}
     
     for config in sprints_config:
         # Calculate dates (past sprints)
@@ -188,7 +191,12 @@ def seed_completed_sprints(db, space_id: str):
         
         result = db.sprints.insert_one(sprint_doc)
         sprint_id = str(result.inserted_id)
-        sprint_ids.append(sprint_id)
+        sprint_ids_dict[f"sprint{config['index'] + 1}"] = {
+            "id": sprint_id,
+            "name": config["name"],
+            "planned_sp": config["planned_sp"],
+            "completed_sp": config["completed_sp"]
+        }
         
         # Generate burndown history
         final_remaining = config["planned_sp"] - config["completed_sp"]
@@ -212,6 +220,8 @@ def seed_completed_sprints(db, space_id: str):
             print(f"    Pattern: Flatline (spillover)")
         else:
             print(f"    Pattern: Perfect linear burn")
+    
+    return sprint_ids_dict
 
 def seed_active_sprint(db, space_id: str) -> str:
     """
@@ -314,6 +324,246 @@ def seed_sprint_backlog_items(db, sprint_id: str):
         print(f"  ✓ {item['title']} ({item['story_points']} SP)")
     
     print(f"  Total Sprint Items: 24 SP (6 SP capacity remaining)")
+
+def seed_historical_backlog_items(db, space_id: str, sprint_ids_dict: dict):
+    """
+    Create historical backlog items for the completed sprints.
+    These items are crucial for velocity calculations and analytics.
+    
+    Sprint 1: 5 items × 5 SP each = 25 SP (all Done)
+    Sprint 2: 4 Done items (22 SP) + 2 Unfinished items (8 SP) = 30 SP planned, 22 SP completed
+    Sprint 3: 4 items × 5 SP each = 20 SP (all Done)
+    """
+    print("\n[4] Seeding Historical Backlog Items...")
+    
+    sprint1_id = sprint_ids_dict["sprint1"]["id"]
+    sprint2_id = sprint_ids_dict["sprint2"]["id"]
+    sprint3_id = sprint_ids_dict["sprint3"]["id"]
+    
+    now = datetime.now()
+    total_items = 0
+    
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Sprint 1: Foundation & Auth (5 items, 5 SP each, all Done)
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\n  Sprint 1: Foundation & Auth (25 SP completed)")
+    
+    sprint1_items = [
+        {
+            "title": "Setup User Database Schema",
+            "description": "Design and create MongoDB collections for users, with proper indexing and validation.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Create Login API Endpoint",
+            "description": "Implement POST /api/auth/login with JWT token generation and session management.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Implement User Registration Flow",
+            "description": "Build registration endpoint with email validation, password hashing using bcrypt.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Setup Authentication Middleware",
+            "description": "Create middleware to verify JWT tokens and protect authenticated routes.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Create User Profile Endpoint",
+            "description": "Implement GET /api/user/profile to retrieve authenticated user information.",
+            "type": "Task",
+            "priority": "Medium",
+            "story_points": 5,
+            "status": "Done",
+        },
+    ]
+    
+    for item in sprint1_items:
+        item_doc = {
+            "title": item["title"],
+            "description": item["description"],
+            "type": item["type"],
+            "priority": item["priority"],
+            "story_points": item["story_points"],
+            "status": item["status"],
+            "space_id": space_id,
+            "sprint_id": sprint1_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        db.backlog_items.insert_one(item_doc)
+        print(f"    ✓ {item['title']} ({item['story_points']} SP)")
+        total_items += 1
+    
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Sprint 2: User Profiles (4 Done + 2 Unfinished = 30 SP planned, 22 SP completed)
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\n  Sprint 2: User Profiles (22 SP completed, 8 SP spillover)")
+    
+    sprint2_items_done = [
+        {
+            "title": "Create User Profile Frontend",
+            "description": "Build React component to display user profile with edit capability.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+        },
+        {
+            "title": "Implement Profile Update API",
+            "description": "Create PUT /api/user/profile endpoint to update user information.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Add Profile Picture Upload",
+            "description": "Implement file upload functionality for profile pictures with image validation.",
+            "type": "Task",
+            "priority": "Medium",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Setup User Avatar Caching",
+            "description": "Configure CDN caching for user profile pictures to improve performance.",
+            "type": "Task",
+            "priority": "Low",
+            "story_points": 4,
+            "status": "Done",
+        },
+    ]
+    
+    sprint2_items_unfinished = [
+        {
+            "title": "Implement User Preferences System",
+            "description": "Create API to store and retrieve user preferences like theme, language, notifications.",
+            "type": "Story",
+            "priority": "Medium",
+            "story_points": 5,
+            "status": "In Progress",
+        },
+        {
+            "title": "Add Profile Analytics Dashboard",
+            "description": "Build analytics dashboard showing user activity, login history, and engagement metrics.",
+            "type": "Task",
+            "priority": "Low",
+            "story_points": 3,
+            "status": "To Do",
+        },
+    ]
+    
+    for item in sprint2_items_done:
+        item_doc = {
+            "title": item["title"],
+            "description": item["description"],
+            "type": item["type"],
+            "priority": item["priority"],
+            "story_points": item["story_points"],
+            "status": item["status"],
+            "space_id": space_id,
+            "sprint_id": sprint2_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        db.backlog_items.insert_one(item_doc)
+        print(f"    ✓ {item['title']} ({item['story_points']} SP) - DONE")
+        total_items += 1
+    
+    for item in sprint2_items_unfinished:
+        item_doc = {
+            "title": item["title"],
+            "description": item["description"],
+            "type": item["type"],
+            "priority": item["priority"],
+            "story_points": item["story_points"],
+            "status": item["status"],
+            "space_id": space_id,
+            "sprint_id": sprint2_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        db.backlog_items.insert_one(item_doc)
+        print(f"    ✓ {item['title']} ({item['story_points']} SP) - {item['status'].upper()} (SPILLOVER)")
+        total_items += 1
+    
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Sprint 3: Security Audit (4 items, 5 SP each, all Done)
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\n  Sprint 3: Security Audit (20 SP completed)")
+    
+    sprint3_items = [
+        {
+            "title": "Audit Authentication Security",
+            "description": "Review JWT implementation, token expiration, and password hashing standards.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Implement HTTPS and TLS",
+            "description": "Configure SSL/TLS certificates and enforce HTTPS across all endpoints.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Add Input Validation & Sanitization",
+            "description": "Implement input validation to prevent SQL injection and XSS attacks.",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "Done",
+        },
+        {
+            "title": "Setup Security Logging",
+            "description": "Implement comprehensive logging for security events, failed logins, and suspicious activities.",
+            "type": "Task",
+            "priority": "Medium",
+            "story_points": 5,
+            "status": "Done",
+        },
+    ]
+    
+    for item in sprint3_items:
+        item_doc = {
+            "title": item["title"],
+            "description": item["description"],
+            "type": item["type"],
+            "priority": item["priority"],
+            "story_points": item["story_points"],
+            "status": item["status"],
+            "space_id": space_id,
+            "sprint_id": sprint3_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        db.backlog_items.insert_one(item_doc)
+        print(f"    ✓ {item['title']} ({item['story_points']} SP)")
+        total_items += 1
+    
+    print(f"\n  Total Historical Items Created: {total_items}")
+    print(f"  Average Completed Velocity: ({sprint_ids_dict['sprint1']['completed_sp']} + {sprint_ids_dict['sprint2']['completed_sp']} + {sprint_ids_dict['sprint3']['completed_sp']}) / 3 = {(sprint_ids_dict['sprint1']['completed_sp'] + sprint_ids_dict['sprint2']['completed_sp'] + sprint_ids_dict['sprint3']['completed_sp']) / 3:.1f} SP/Sprint")
 
 def seed_backlog_items(db, space_id: str):
     """
@@ -448,7 +698,8 @@ def main():
         
         # Seed data
         space_id = seed_space(db)
-        seed_completed_sprints(db, space_id)
+        sprint_ids_dict = seed_completed_sprints(db, space_id)
+        seed_historical_backlog_items(db, space_id, sprint_ids_dict)
         active_sprint_id = seed_active_sprint(db, space_id)
         seed_sprint_backlog_items(db, active_sprint_id)
         seed_backlog_items(db, space_id)
@@ -474,12 +725,19 @@ def main():
         print("\nDataset Structure:")
         print("  • 1 Space (FinTech Payment Portal)")
         print("  • 4 Sprints (3 Completed, 1 Active)")
-        print("  • Sprint 1: Foundation & Auth (25 SP, perfect burn)")
-        print("  • Sprint 2: User Profiles (22/30 SP, flatline pattern)")
-        print("  • Sprint 3: Security Audit (20 SP, perfect burn)")
-        print("  • Sprint 4: Stripe Integration (24/30 SP active, 6 SP capacity)")
-        print("  • 4 Sprint Items (24 SP total in active sprint)")
-        print("  • 5 Backlog Items (testing ML rules: ADD, SWAP, SPLIT, DEFER, EVALUATE)")
+        print("    ├─ Sprint 1: Foundation & Auth")
+        print("    │   └─ 5 items × 5 SP = 25 SP (all Done → 100% velocity)")
+        print("    ├─ Sprint 2: User Profiles")
+        print("    │   ├─ 4 Done items = 22 SP")
+        print("    │   └─ 2 Unfinished items = 8 SP (spillover → 73% velocity)")
+        print("    ├─ Sprint 3: Security Audit")
+        print("    │   └─ 4 items × 5 SP = 20 SP (all Done → 100% velocity)")
+        print("    └─ Sprint 4: Stripe Integration (ACTIVE)")
+        print("        └─ 4 items = 24 SP (6 SP capacity remaining)")
+        print("  • Historical Items: 13 items total (for velocity calculations)")
+        print("  • Average Velocity: (25 + 22 + 20) / 3 = 22.33 SP/Sprint")
+        print("  • Active Sprint Backlog: 4 items (24 SP)")
+        print("  • Unassigned Backlog: 5 items (testing ML rules: ADD, SWAP, SPLIT, DEFER, EVALUATE)")
         
         print("\n" + "="*70)
         print("Ready for testing AI/ML features and analytics!")
