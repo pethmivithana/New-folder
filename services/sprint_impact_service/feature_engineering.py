@@ -373,7 +373,11 @@ def build_quality_features(item_data: dict, sprint_context: dict) -> np.ndarray:
     prio_label = _ui_prio_to_quality(ui_prio)
     prio_code  = float(_safe_le_transform(_quality_le_prio, prio_label))
 
-    prio_norm       = prio_code / 4.0
+    # BUG FIX: Invert priority normalization so Critical (1) → 1.0 and Low (2) → 0.0
+    # Original: prio_norm = prio_code / 4.0 made Critical the SMALLEST value (0.25)
+    # Fixed: (5.0 - prio_code) / 4.0 makes Critical the HIGHEST value (1.0)
+    # This aligns feature signals with actual risk: Critical = high risk
+    prio_norm       = (5.0 - prio_code) / 4.0
     desc_complexity = min(float(len(description)) / 500.0, 1.0)
     pressure_norm   = story_points / (days_remaining * 14.0)
     days_norm       = min(days_remaining / 14.0, 1.0)
@@ -404,7 +408,7 @@ def build_quality_features(item_data: dict, sprint_context: dict) -> np.ndarray:
     print(f"[v0]   Days Remaining: {days_remaining}", file=sys.stderr)
     print(f"[v0] ", file=sys.stderr)
     print(f"[v0] NORMALIZED FEATURES:", file=sys.stderr)
-    print(f"[v0]   [0] prio_norm = {prio_code} / 4.0 = {prio_norm:.4f}", file=sys.stderr)
+    print(f"[v0]   [0] prio_norm = (5.0 - {prio_code}) / 4.0 = {prio_norm:.4f}  (FIXED: Critical→1.0, Low→0.0)", file=sys.stderr)
     print(f"[v0]   [1] desc_complexity = len(desc) / 500 = {desc_complexity:.4f}", file=sys.stderr)
     print(f"[v0]   [2] pressure_norm = {story_points} / ({days_remaining} * 14) = {pressure_norm:.4f}", file=sys.stderr)
     print(f"[v0]   [3] days_norm = {days_remaining} / 14 = {days_norm:.4f}", file=sys.stderr)
