@@ -42,6 +42,7 @@ le_prio_quality.pkl    →  build_quality_features()
 """
 
 import numpy as np
+import pandas as pd
 import warnings
 import sys
 
@@ -204,11 +205,13 @@ def build_effort_features(item_data: dict, sprint_context: dict) -> dict:
 _AUTHOR_LOAD_MEDIAN = 4519.0
 
 
-def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> np.ndarray:
+def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> pd.DataFrame:
     """
     9 features in the exact order stored in risk_artifacts feature_names:
     Story_Point, total_links, total_comments, author_total_load,
     link_density, comment_density, pressure_index, Type_Code, Priority_Code
+    
+    Returns a Pandas DataFrame with explicit column names to match XGBoost training schema.
     """
     description  = item_data.get('description', '')
     story_points = float(item_data.get('story_points', 5))
@@ -219,7 +222,7 @@ def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> np.nd
 
     total_links     = float(description.lower().count('http') +
                             len(description.split(',')) // 3)
-    total_comments  = float(len(description.split('.')))
+    total_comments  = 0.0  # BUG FIX: Default to 0.0 for new tickets instead of counting periods
     author_load     = _AUTHOR_LOAD_MEDIAN          # imputer median fill
     link_density    = total_links / max(1.0, story_points)
     comment_density = total_comments / max(1.0, story_points)
@@ -242,11 +245,17 @@ def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> np.nd
             warnings.simplefilter('ignore')
             X = _risk_imputer.transform(X)
 
-    # Log to terminal for visibility
-    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Shape: {X.shape}, dtype: {X.dtype}", file=sys.stderr)
-    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Values: {X[0]}", file=sys.stderr)
+    # BUG FIX: Return DataFrame with explicit column names instead of raw numpy array
+    # This ensures XGBoost can map features correctly since it was trained on a DataFrame
+    feature_names = ['Story_Point', 'total_links', 'total_comments', 'author_total_load',
+                     'link_density', 'comment_density', 'pressure_index', 'Type_Code', 'Priority_Code']
+    df = pd.DataFrame(X, columns=feature_names)
 
-    return X
+    # Log to terminal for visibility
+    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Shape: {df.shape}, dtype: {df.dtypes}", file=sys.stderr)
+    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Values: {df.iloc[0].to_dict()}", file=sys.stderr)
+
+    return df
 
 
 # ══════════════════════════════════════════════════════════════════════════════
