@@ -311,18 +311,24 @@ class ImpactPredictor:
                 return self._fallback_quality_risk()
 
             # ── Debug: log array properties before inference ──────────────────
-            print(f"\n[QUALITY RISK] Input array shape: {X.shape}", file=__import__('sys').stderr)
-            print(f"[QUALITY RISK] Input array dtype: {X.dtype}", file=__import__('sys').stderr)
-            print(f"[QUALITY RISK] Input array values: {X}", file=__import__('sys').stderr)
-            print(f"[QUALITY RISK] Model type: {type(model)}", file=__import__('sys').stderr)
-            print(f"[QUALITY RISK] Calling predict_proba()...", file=__import__('sys').stderr)
+            print(f"\n[v0] ═══════════════════════════════════════════════════════", file=__import__('sys').stderr)
+            print(f"[v0] QUALITY RISK MODEL PREDICTION", file=__import__('sys').stderr)
+            print(f"[v0] ───────────────────────────────────────────────────────", file=__import__('sys').stderr)
+            print(f"[v0] Input array shape: {X.shape}", file=__import__('sys').stderr)
+            print(f"[v0] Input array dtype: {X.dtype}", file=__import__('sys').stderr)
+            print(f"[v0] Input array values: {X[0]}", file=__import__('sys').stderr)
+            print(f"[v0] Model type: {type(model).__name__}", file=__import__('sys').stderr)
+            print(f"[v0] Model class: {model.__class__.__module__}.{model.__class__.__name__}", file=__import__('sys').stderr)
 
             proba      = model.predict_proba(X)[0]
             defect_pct = _cap(float(proba[1]) * 100)
 
-            print(f"[QUALITY RISK] Proba output shape: {proba.shape}", file=__import__('sys').stderr)
-            print(f"[QUALITY RISK] Proba values: {proba}", file=__import__('sys').stderr)
-            print(f"[QUALITY RISK] Defect %: {defect_pct}\n", file=__import__('sys').stderr)
+            print(f"[v0] ", file=__import__('sys').stderr)
+            print(f"[v0] Model output (probabilities):", file=__import__('sys').stderr)
+            print(f"[v0]   Class 0 (No Defect): {proba[0]:.4f}", file=__import__('sys').stderr)
+            print(f"[v0]   Class 1 (Defect): {proba[1]:.4f}", file=__import__('sys').stderr)
+            print(f"[v0]   Defect %: {defect_pct:.1f}%", file=__import__('sys').stderr)
+            print(f"[v0] ═══════════════════════════════════════════════════════\n", file=__import__('sys').stderr)
 
             if defect_pct > 60:
                 status, label = 'critical', 'High Bug Risk'

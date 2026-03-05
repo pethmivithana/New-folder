@@ -393,9 +393,27 @@ def build_quality_features(item_data: dict, sprint_context: dict) -> np.ndarray:
     assert X.shape == (1, 6), f"Expected shape (1, 6), got {X.shape}"
     assert X.dtype == np.float32, f"Expected dtype float32, got {X.dtype}"
     
-    # Log to terminal for visibility
-    print(f"[BUILD_QUALITY_FEATURES] Shape: {X.shape}, dtype: {X.dtype}", file=sys.stderr)
-    print(f"[BUILD_QUALITY_FEATURES] Values: {X[0]}", file=sys.stderr)
+    # Debug logging with raw and normalized values
+    print(f"\n[v0] ═══════════════════════════════════════════════════════", file=sys.stderr)
+    print(f"[v0] QUALITY RISK FEATURE ENGINEERING DEBUG", file=sys.stderr)
+    print(f"[v0] ───────────────────────────────────────────────────────", file=sys.stderr)
+    print(f"[v0] INPUT DATA:", file=sys.stderr)
+    print(f"[v0]   Story Points: {story_points}", file=sys.stderr)
+    print(f"[v0]   Priority (UI): {ui_prio}", file=sys.stderr)
+    print(f"[v0]   Priority (Code): {prio_code}", file=sys.stderr)
+    print(f"[v0]   Days Remaining: {days_remaining}", file=sys.stderr)
+    print(f"[v0] ", file=sys.stderr)
+    print(f"[v0] NORMALIZED FEATURES:", file=sys.stderr)
+    print(f"[v0]   [0] prio_norm = {prio_code} / 4.0 = {prio_norm:.4f}", file=sys.stderr)
+    print(f"[v0]   [1] desc_complexity = len(desc) / 500 = {desc_complexity:.4f}", file=sys.stderr)
+    print(f"[v0]   [2] pressure_norm = {story_points} / ({days_remaining} * 14) = {pressure_norm:.4f}", file=sys.stderr)
+    print(f"[v0]   [3] days_norm = {days_remaining} / 14 = {days_norm:.4f}", file=sys.stderr)
+    print(f"[v0]   [4] sp_norm = ({story_points} - 1) / 12 = {sp_norm:.4f}", file=sys.stderr)
+    print(f"[v0]   [5] sprint_progress = {sprint_progress:.4f}", file=sys.stderr)
+    print(f"[v0] ", file=sys.stderr)
+    print(f"[v0] ARRAY: shape={X.shape}, dtype={X.dtype}", file=sys.stderr)
+    print(f"[v0] VALUES: {X[0]}", file=sys.stderr)
+    print(f"[v0] ═══════════════════════════════════════════════════════\n", file=sys.stderr)
     
     return X
 
