@@ -514,7 +514,7 @@ function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onAc
   );
 }
 
-// ─── ImpactAnalyzer (main) ────────────────────────────────────────────────────
+// ─── ImpactAnalyzer (main) ────────────────────────���───────────────────────────
 export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [sprint,    setSprint]    = useState(null);
   const [form,      setForm]      = useState({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' });
@@ -545,6 +545,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
 
   const suggestPoints = async () => {
     if (!form.title.trim()) { alert('Enter a title first'); return; }
+    if (!isValidText(form.title)) { alert('Title must contain real words to suggest story points'); return; }
     setSuggesting(true);
     try { const r = await api.predictStoryPoints({ title: form.title, description: form.description }); setForm({ ...form, story_points: r.suggested_points || 5 }); }
     catch (e) { alert('Could not suggest: ' + e.message); }
@@ -565,6 +566,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
   // NEW: Sentence-Transformer alignment — deterministic, zero-latency
   const checkSTAlignment = async () => {
     if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title first.'); return; }
+    if (!isValidText(form.title)) { alert('Title must contain real words to analyze alignment'); return; }
     setStAligning(true);
     setStAlignment(null);
     try {
@@ -583,8 +585,18 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
     finally { setStAligning(false); }
   };
 
+  // Helper: Validate if text contains real words (not just gibberish)
+  const isValidText = (text) => {
+    // Remove special chars and check if at least 1 word has 3+ chars (real English words)
+    const words = text.trim().toLowerCase().match(/[a-z]+/g) || [];
+    const hasRealWords = words.some(w => w.length >= 3);
+    return hasRealWords;
+  };
+
   const analyze = async () => {
-    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
+    if (!sprint) { alert('Select a sprint first'); return; }
+    if (!form.title.trim()) { alert('Enter a ticket title'); return; }
+    if (!isValidText(form.title)) { alert('Title must contain real words (e.g., "Add login feature", not "aaa bbb xyz")'); return; }
     setLoading(true); setAnalysis(null); setResult(null); setDecision(null);
     try {
       const r = await api.analyzeImpact({ sprint_id: sprint.id, title: form.title, description: form.description, story_points: form.story_points, priority: form.priority, type: form.type });
