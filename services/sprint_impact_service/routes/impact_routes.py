@@ -9,6 +9,7 @@ from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint
 from impact_predictor import impact_predictor
 from recommendation_engine import RecommendationEngine
 from explanation_generator import explanation_generator
+from input_validation import validate_requirement
 
 router = APIRouter()
 
@@ -220,6 +221,14 @@ async def get_analysis_history(
 
 @router.post("/analyze")
 async def analyze_impact(body: AnalyzeRequest):
+    # 0. INPUT VALIDATION: Reject gibberish before ML processing
+    is_valid, error_message = validate_requirement(body.title, body.description)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=error_message
+        )
+    
     # 1. Fetch sprint
     sprint = await get_sprint_by_id(body.sprint_id)
     if not sprint:
