@@ -6,6 +6,7 @@ import KanbanBoard from './KanbanBoard';
 import FinishSprintModal from './FinishSprintModal';
 import ImpactAnalyzer from './ImpactAnalyzer';
 import AnalyticsDashboard from './AnalyticsDashboard';
+import Settings from './Settings';
 
 export default function Dashboard({ space, onBack }) {
   const [sprints, setSprints] = useState([]);
@@ -351,45 +352,7 @@ export default function Dashboard({ space, onBack }) {
 
         {!loading && activeTab === 'impact-analyzer' && <ImpactAnalyzer sprints={sprints} />}
         {!loading && activeTab === 'analytics' && <AnalyticsDashboard space={space} />}
-        {!loading && activeTab === 'settings' && (
-          <div className="bg-white rounded-xl shadow-sm p-8">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Settings</h2>
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Sprint Settings</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Default Sprint Duration</label>
-                    <select defaultValue="2 Weeks" className="w-full max-w-xs border border-gray-300 rounded-lg px-4 py-2">
-                      <option>1 Week</option>
-                      <option>2 Weeks</option>
-                      <option>3 Weeks</option>
-                      <option>4 Weeks</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Working Hours/Day</label>
-                    <input type="number" min="1" max="24" defaultValue="6" className="w-full max-w-xs border border-gray-300 rounded-lg px-4 py-2" />
-                  </div>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Impact Analysis</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700">Enable ML Predictions</span>
-                    <input type="checkbox" defaultChecked className="w-4 h-4" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700">Auto-analyze on Add</span>
-                    <input type="checkbox" className="w-4 h-4" />
-                  </div>
-                </div>
-              </div>
-              <button className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700">Save Settings</button>
-            </div>
-          </div>
-        )}
+        {!loading && activeTab === 'settings' && <Settings />}
       </div>
 
       {showSprintModal && (
