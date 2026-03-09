@@ -100,6 +100,37 @@ async def get_backlog_items_by_sprint(sprint_id: str) -> list:
     return items
 
 
+async def get_completed_sprints(space_id: str, limit: int = 20) -> list:
+    """
+    Fetch the last `limit` completed sprints for a space (for TEAM_PACE calculation).
+    
+    Returns list of dicts with: id, completed_sp, start_date, end_date
+    """
+    db = get_database()
+    completed_sprints = []
+    
+    async for sprint in (
+        db.sprints.find({"space_id": space_id, "status": "Completed"})
+        .sort("updated_at", DESCENDING)
+        .limit(limit)
+    ):
+        sprint_id_str = str(sprint["_id"])
+        
+        # Calculate completed story points for this sprint
+        completed_sp = 0
+        async for item in db.backlog_items.find({"sprint_id": sprint_id_str, "status": "Done"}):
+            completed_sp += item.get("story_points", 0)
+        
+        completed_sprints.append({
+            "id": sprint_id_str,
+            "completed_sp": completed_sp,
+            "start_date": sprint.get("start_date"),
+            "end_date": sprint.get("end_date"),
+        })
+    
+    return completed_sprints
+
+
 async def get_last_completed_sprint(space_id: str) -> dict | None:
     """
     Fetch the most recently completed sprint for a space.

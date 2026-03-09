@@ -30,6 +30,60 @@ router = APIRouter()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# MODULE 3: SP to Hours Translation Helper (Global TEAM_PACE)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def calculate_hours_per_sp(team_pace: float = 1.0) -> float:
+    """
+    Calculate hours per story point using TEAM_PACE.
+    
+    Formula: hours_per_sp = 8 / TEAM_PACE
+    
+    Args:
+        team_pace (float): Story points per development day (from analytics)
+    
+    Returns:
+        float: Hours required per story point
+    """
+    if team_pace <= 0:
+        team_pace = 1.0
+    return round(8.0 / team_pace, 2)
+
+
+def format_sp_to_hours(story_points: int, hours_per_sp: float = 8.0) -> str:
+    """
+    Format story points with hours translation for display.
+    
+    Example: format_sp_to_hours(5, 8.0) → "5 SP (~40 Hours)"
+    
+    Args:
+        story_points (int): Number of story points
+        hours_per_sp (float): Hours per story point
+    
+    Returns:
+        str: Formatted display string
+    """
+    estimated_hours = round(story_points * hours_per_sp, 1)
+    return f"{story_points} SP (~{estimated_hours} Hours)"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 4: Semantic Sprint Alignment (TF-IDF based, no LLM required)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SimpleAlignmentRequest(BaseModel):
+    """Simple TF-IDF based sprint goal alignment (MODULE 4)"""
+    sprint_goal: str
+    task_description: str
+
+class SimpleAlignmentResponse(BaseModel):
+    """Simple alignment score (0-1), no action recommendations"""
+    alignment_score: float  # 0-1
+    alignment_level: str    # "STRONGLY_ALIGNED" | "PARTIALLY_ALIGNED" | "UNALIGNED"
+    recommendation: str     # Human-readable feedback
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Sentence-Transformer singleton  (loaded once at module import)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -354,7 +408,7 @@ async def analyze_sprint_goal_alignment_endpoint(request: SprintGoalAlignmentReq
     return SprintGoalAlignmentResponse(**result)
 
 
-# ── LLM endpoint (previous session, unchanged) ────────────────────────────────
+# ── LLM endpoint (previous session, unchanged) ───��────────────────────────────
 
 _LLM_SYSTEM_PROMPT = """You are an AI Scrum Master assistant. Your task is to analyze whether a new requirement should be accepted into an active sprint based on its alignment with the sprint goal. You will evaluate the requirement using a layered, research-validated approach combining semantic analysis, metadata traceability, and critical blocker detection.
 
@@ -816,3 +870,77 @@ async def decide(request: DecisionRequest):
     )
 
     return DecisionResponse(**result.to_dict())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 4 ENDPOINT: Simple Sprint Goal Alignment (TF-IDF, no LLM)
+# POST /api/ai/align-simple-goal
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/align-simple-goal", response_model=SimpleAlignmentResponse)
+async def align_simple_goal(request: SimpleAlignmentRequest):
+    """
+    MODULE 4: Simple semantic sprint goal alignment using TF-IDF (no LLM required).
+    
+    Uses tfidf_cosine_similarity() for deterministic, fast alignment scoring.
+    Returns alignment_score (0-1) and recommendation level.
+    
+    Thresholds:
+      score >= 0.5  → STRONGLY_ALIGNED (add to sprint)
+      score 0.3-0.5 → PARTIALLY_ALIGNED (review with team)
+      score < 0.3   → UNALIGNED (likely scope creep)
+    """
+    if not request.sprint_goal or not request.task_description:
+        raise HTTPException(
+            status_code=400,
+            detail="sprint_goal and task_description are required."
+        )
+    
+    if not is_tfidf_available():
+        raise HTTPException(
+            status_code=503,
+            detail="TF-IDF vectorizer not loaded. Ensure tfidf_registry is initialized."
+        )
+    
+    # Compute cosine similarity between sprint goal and task description
+    alignment_score = tfidf_cosine_similarity(request.sprint_goal, request.task_description)
+    
+    # Handle error case
+    if alignment_score < 0:
+        raise HTTPException(
+            status_code=503,
+            detail="TF-IDF similarity computation failed."
+        )
+    
+    # Map score to alignment level
+    if alignment_score >= 0.5:
+        alignment_level = "STRONGLY_ALIGNED"
+        recommendation = (
+            f"Task is strongly aligned with sprint goal (score: {alignment_score:.2f}). "
+            "Safe to add to sprint."
+        )
+    elif alignment_score >= 0.3:
+        alignment_level = "PARTIALLY_ALIGNED"
+        recommendation = (
+            f"Task is partially aligned with sprint goal (score: {alignment_score:.2f}). "
+            "Review with team before adding."
+        )
+    else:
+        alignment_level = "UNALIGNED"
+        recommendation = (
+            f"Task is not well aligned with sprint goal (score: {alignment_score:.2f}). "
+            "Likely scope creep. Consider deferring or re-scoping."
+        )
+    
+    print(
+        f"[SIMPLE_ALIGN] goal='{request.sprint_goal[:50]}...' "
+        f"task='{request.task_description[:50]}...' "
+        f"score={alignment_score:.4f} level={alignment_level}",
+        file=sys.stderr,
+    )
+    
+    return SimpleAlignmentResponse(
+        alignment_score=round(alignment_score, 4),
+        alignment_level=alignment_level,
+        recommendation=recommendation,
+    )

@@ -1,9 +1,15 @@
 /**
  * ImpactAnalyzer.jsx — Light theme, fully legible, matches AgileSense-AI design language
+ * 
+ * MODULE 3 & 4 Integration:
+ * - MODULE 3: Displays story points with hours translation (formatSPWithHours)
+ * - MODULE 4: Checks sprint goal alignment and flags scope creep
  */
 
 import { useState, useEffect, useRef } from 'react';
 import api from './api';
+import { formatSPWithHours, fetchTeamPace } from '../../../utils/hourTranslation';
+import { checkSprintAlignment, isScopeCreep, getAlignmentColors, getScopeCreepWarning } from '../../../utils/sprintAlignment';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ACTION_META = {
@@ -51,22 +57,32 @@ async function logFeedback(logId, accepted, takenAction) {
 }
 
 // ─── CapacityBar ──────────────────────────────────────────────────────────────
-function CapacityBar({ used, total }) {
+// MODULE 3: Now displays both SP and Hours translation
+function CapacityBar({ used, total, hoursPerSP = 8.0 }) {
   const pct  = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   const col  = pct > 90 ? '#dc2626' : pct > 70 ? '#d97706' : '#059669';
   const free = Math.max(0, total - used);
+  
+  // Calculate hours (MODULE 3)
+  const usedHours = Math.round(used * hoursPerSP * 10) / 10;
+  const totalHours = Math.round(total * hoursPerSP * 10) / 10;
+  const freeHours = Math.round(free * hoursPerSP * 10) / 10;
+  
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
         <span style={{ fontSize:12, color:'#374151', fontWeight:600 }}>Sprint Capacity</span>
-        <span style={{ fontSize:12, fontWeight:800, color:'#111827' }}>{used} / {total} SP</span>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2 }}>
+          <span style={{ fontSize:12, fontWeight:800, color:'#111827' }}>{used} / {total} SP</span>
+          <span style={{ fontSize:10, color:'#9ca3af', fontStyle:'italic' }}>({usedHours} / {totalHours} hrs)</span>
+        </div>
       </div>
       <div style={{ height:8, background:'#e5e7eb', borderRadius:6, overflow:'hidden' }}>
         <div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:6, transition:'width 0.9s cubic-bezier(.16,1,.3,1)' }} />
       </div>
       <div style={{ display:'flex', justifyContent:'space-between', marginTop:5 }}>
         <span style={{ fontSize:11, color:'#9ca3af' }}>{Math.round(pct)}% used</span>
-        <span style={{ fontSize:11, color:free < 5 ? '#dc2626' : '#059669', fontWeight:600 }}>{free} SP remaining</span>
+        <span style={{ fontSize:11, color:free < 5 ? '#dc2626' : '#059669', fontWeight:600 }}>{free} SP ({freeHours} hrs) remaining</span>
       </div>
     </div>
   );
@@ -306,6 +322,37 @@ function RiskBanner({ status }) {
   );
 }
 
+// ─── ScopeCreepWarning (MODULE 4 — Alignment check) ─────────────────────────
+function ScopeCreepWarning({ alignmentScore, taskTitle, onDismiss }) {
+  if (!isScopeCreep(alignmentScore, 0.4)) return null;
+  
+  const colors = getAlignmentColors('UNALIGNED');
+  const warning = getScopeCreepWarning(alignmentScore, taskTitle);
+  
+  return (
+    <div style={{ background:colors.bg, border:`1.5px solid ${colors.border}`, borderRadius:12, padding:'14px 16px', marginBottom:16, display:'flex', alignItems:'flex-start', gap:12 }}>
+      <div style={{ width:32, height:32, borderRadius:8, background:'#fff', border:`1px solid ${colors.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+        ⚠️
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:colors.accent, marginBottom:4 }}>Potential Scope Creep</div>
+        <div style={{ fontSize:12, color:colors.text, lineHeight:1.5 }}>{warning}</div>
+        <div style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>
+          Alignment Score: <strong style={{ color:colors.accent }}>{Math.round(alignmentScore * 100)}%</strong> (threshold: 40%)
+        </div>
+      </div>
+      {onDismiss && (
+        <button 
+          onClick={onDismiss}
+          style={{ background:'none', border:'none', cursor:'pointer', color:colors.border, fontSize:18, padding:0, lineHeight:1, flexShrink:0 }}
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── STAlignmentCard (Phase 1 — alignment state only, no action verbs) ───────
 function STAlignmentCard({ result, onClear }) {
   const [expanded, setExpanded] = useState(false);
@@ -514,7 +561,7 @@ function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onAc
   );
 }
 
-// ─── ImpactAnalyzer (main) ────────────────────────────────────────────────────
+// ─── ImpactAnalyzer (main) ────────────────────────���───────────────────────────
 export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [sprint,    setSprint]    = useState(null);
   const [form,      setForm]      = useState({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' });
@@ -528,12 +575,34 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [stAlignment, setStAlignment] = useState(null);   // Phase 1 result
   const [stAligning,  setStAligning]  = useState(false);
   const [decision,    setDecision]    = useState(null);   // Phase 3 result
+  
+  // MODULE 3: SP to Hours Translation
+  const [hoursPerSP,     setHoursPerSP]     = useState(8.0);
+  const [loadingPace,    setLoadingPace]    = useState(true);
+  
+  // MODULE 4: Sprint Goal Alignment
+  const [simpleAlignment, setSimpleAlignment] = useState(null);
+  const [checkingAlignment, setCheckingAlignment] = useState(false);
+  
   const ref = useRef(null);
 
   useEffect(() => {
-    const active = sprints?.find(s => s.status === 'Active') || sprints?.[0];
-    if (active && !sprint) { setSprint(active); loadCtx(active.id); }
+  const active = sprints?.find(s => s.status === 'Active') || sprints?.[0];
+  if (active && !sprint) { setSprint(active); loadCtx(active.id); }
   }, [sprints]);
+  
+  // MODULE 3: Load team pace on mount
+  useEffect(() => {
+    if (!spaceId) return;
+    setLoadingPace(true);
+    fetchTeamPace(spaceId)
+      .then(data => setHoursPerSP(data.hours_per_sp || 8.0))
+      .catch(err => {
+        console.error('Failed to load team pace:', err);
+        setHoursPerSP(8.0);
+      })
+      .finally(() => setLoadingPace(false));
+  }, [spaceId]);
 
   const loadCtx = async (id) => { try { setCtx(await api.getSprintContext(id)); } catch { setCtx(null); } };
 
@@ -560,6 +629,23 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
       setAlignment(r);
     } catch (e) { alert('Alignment check failed: ' + e.message); }
     finally { setAligning(false); }
+  };
+
+  // MODULE 4: Simple TF-IDF sprint goal alignment (quick scope creep check)
+  const checkSimpleAlignment = async () => {
+    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
+    setCheckingAlignment(true);
+    setSimpleAlignment(null);
+    try {
+      const taskDescription = `${form.title} ${form.description}`.trim();
+      const r = await checkSprintAlignment(sprint.goal || '', taskDescription);
+      setSimpleAlignment(r);
+    } catch (e) {
+      console.error('Simple alignment check failed:', e);
+      alert('Could not check alignment: ' + e.message);
+    } finally {
+      setCheckingAlignment(false);
+    }
   };
 
   // NEW: Sentence-Transformer alignment — deterministic, zero-latency
@@ -685,17 +771,21 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
               <p style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>💡 Richer detail improves story point accuracy</p>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-              <div>
-                <label style={lbl}>Story Points</label>
-                <div style={{ display:'flex', gap:8 }}>
-                  <input type="number" min="1" max="21" value={form.story_points} onChange={e => setForm({...form, story_points:parseInt(e.target.value)||5})} style={{...inp, flex:1}} onFocus={focus} onBlur={blur} />
-                  <button onClick={suggestPoints} disabled={suggesting}
-                    style={{ padding:'8px 10px', background:'#eff6ff', border:'1px solid #bfdbfe', color:'#2563eb', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4, opacity:suggesting?.6:1 }}
-                  >
-                    {suggesting ? <div style={{ width:12, height:12, border:'2px solid #bfdbfe', borderTopColor:'#2563eb', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> : '✨'} AI
-                  </button>
-                </div>
-              </div>
+  <div>
+  <label style={lbl}>Story Points {loadingPace ? '(loading pace...)' : ''}</label>
+  <div style={{ display:'flex', gap:8, marginBottom:4 }}>
+  <input type="number" min="1" max="21" value={form.story_points} onChange={e => setForm({...form, story_points:parseInt(e.target.value)||5})} style={{...inp, flex:1}} onFocus={focus} onBlur={blur} />
+  <button onClick={suggestPoints} disabled={suggesting}
+  style={{ padding:'8px 10px', background:'#eff6ff', border:'1px solid #bfdbfe', color:'#2563eb', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4, opacity:suggesting?.6:1 }}
+  >
+  {suggesting ? <div style={{ width:12, height:12, border:'2px solid #bfdbfe', borderTopColor:'#2563eb', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> : '✨'} AI
+  </button>
+  </div>
+  {/* MODULE 3: Hours Translation Display */}
+  <div style={{ fontSize:11, color:'#9ca3af', fontStyle:'italic', padding:'4px 0' }}>
+    {formatSPWithHours(form.story_points, hoursPerSP)}
+  </div>
+  </div>
               <div>
                 <label style={lbl}>Priority</label>
                 <select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})} style={sel} onFocus={focus} onBlur={blur}>
@@ -731,18 +821,41 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
           )}
 
           {/* Heavy ML impact analysis */}
-          <button onClick={analyze} disabled={loading || !sprint}
-            style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?0.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
-          >
-            {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : <>⚡ Analyze Impact</>}
-          </button>
+  {/* MODULE 4: Quick Scope Creep Check Button */}
+  <button onClick={checkSimpleAlignment} disabled={checkingAlignment || !sprint}
+  style={{ padding:'10px 14px', background:'#fffbeb', border:'1px solid #fcd34d', color:'#d97706', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:6, opacity:(checkingAlignment||!sprint)?0.6:1, transition:'all .2s', letterSpacing:'0.02em', width:'100%', marginBottom:10 }}
+  >
+  {checkingAlignment ? <><div style={{ width:12, height:12, border:'2px solid #fcd34d', borderTopColor:'#d97706', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Checking alignment…</> : <>⚠️ Check Scope Creep</>}
+  </button>
+  
+  <button onClick={analyze} disabled={loading || !sprint}
+  style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?0.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
+  >
+  {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : <>⚡ Analyze Impact</>}
+  </button>
         </div>
 
-        {/* ═══ RIGHT — Results ═══ */}
-        <div ref={ref} style={{ display:'flex', flexDirection:'column', gap:14 }}>
-
-          {/* Empty state */}
-          {!analysis && !loading && (
+  {/* ═══ RIGHT — Results ═══ */}
+  <div ref={ref} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+  
+  {/* MODULE 4: Scope Creep Warning */}
+  {simpleAlignment && (
+    <ScopeCreepWarning 
+      alignmentScore={simpleAlignment.alignment_score}
+      taskTitle={form.title}
+      onDismiss={() => setSimpleAlignment(null)}
+    />
+  )}
+  
+  {/* MODULE 3: CapacityBar now shows hours */}
+  {ctx && sprint && (
+    <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'16px', }}>
+      <CapacityBar used={ctx.used_points} total={ctx.total_capacity} hoursPerSP={hoursPerSP} />
+    </div>
+  )}
+  
+  {/* Empty state */}
+  {!analysis && !loading && (
             <div style={{ background:'#fff', border:'2px dashed #e5e7eb', borderRadius:14, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:340, gap:12, padding:32, textAlign:'center' }}>
               <div style={{ width:64, height:64, borderRadius:16, background:'linear-gradient(135deg,#f5f3ff,#eff6ff)', border:'1px solid #e0e7ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>⚡</div>
               <div style={{ fontSize:16, fontWeight:700, color:'#374151' }}>No Analysis Yet</div>
