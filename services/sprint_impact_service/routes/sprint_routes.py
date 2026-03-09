@@ -8,13 +8,22 @@ from database import get_database
 router = APIRouter()
 
 def sprint_helper(sprint) -> dict:
+    def format_date(date_obj):
+        if not date_obj:
+            return None
+        if isinstance(date_obj, str):
+            return date_obj
+        if isinstance(date_obj, datetime):
+            return date_obj.strftime('%Y-%m-%d')
+        return None
+    
     return {
         "id": str(sprint["_id"]),
         "name": sprint["name"],
         "goal": sprint["goal"],
         "duration_type": sprint["duration_type"],
-        "start_date": sprint.get("start_date").strftime('%Y-%m-%d') if sprint.get("start_date") else None,
-        "end_date": sprint.get("end_date").strftime('%Y-%m-%d') if sprint.get("end_date") else None,
+        "start_date": format_date(sprint.get("start_date")),
+        "end_date": format_date(sprint.get("end_date")),
         "space_id": sprint["space_id"],
         "status": sprint["status"],
         "assignees": sprint.get("assignees", []),
