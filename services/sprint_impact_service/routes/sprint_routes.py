@@ -8,13 +8,22 @@ from database import get_database
 router = APIRouter()
 
 def sprint_helper(sprint) -> dict:
+    def format_date(date_obj):
+        if not date_obj:
+            return None
+        if isinstance(date_obj, str):
+            return date_obj
+        if isinstance(date_obj, datetime):
+            return date_obj.strftime('%Y-%m-%d')
+        return None
+    
     return {
         "id": str(sprint["_id"]),
         "name": sprint["name"],
         "goal": sprint["goal"],
         "duration_type": sprint["duration_type"],
-        "start_date": sprint.get("start_date").strftime('%Y-%m-%d') if sprint.get("start_date") else None,
-        "end_date": sprint.get("end_date").strftime('%Y-%m-%d') if sprint.get("end_date") else None,
+        "start_date": format_date(sprint.get("start_date")),
+        "end_date": format_date(sprint.get("end_date")),
         "space_id": sprint["space_id"],
         "status": sprint["status"],
         "assignees": sprint.get("assignees", []),
@@ -70,8 +79,9 @@ async def create_sprint(sprint: SprintCreate):
     )
     
     sprint_dict = sprint.dict()
-    sprint_dict["start_date"] = start_date
-    sprint_dict["end_date"] = end_date
+    # Store dates as strings in the format YYYY-MM-DD
+    sprint_dict["start_date"] = start_date.strftime('%Y-%m-%d') if isinstance(start_date, datetime) else start_date
+    sprint_dict["end_date"] = end_date.strftime('%Y-%m-%d') if isinstance(end_date, datetime) else end_date
     sprint_dict["status"] = SprintStatus.PLANNED
     sprint_dict["assignees"] = []
     sprint_dict["created_at"] = datetime.utcnow()
@@ -85,8 +95,6 @@ async def create_sprint(sprint: SprintCreate):
 @router.get("/space/{space_id}", response_model=List[Sprint])
 async def get_sprints_by_space(space_id: str):
     db = get_database()
-    if not ObjectId.is_valid(space_id):
-        raise HTTPException(status_code=400, detail="Invalid space ID")
     
     sprints = []
     async for sprint in db.sprints.find({"space_id": space_id}).sort("created_at", -1):

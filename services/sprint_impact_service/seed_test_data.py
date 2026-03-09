@@ -1,756 +1,790 @@
 """
-Comprehensive MongoDB Seeding Script for Agile Replanning Decision Support System
+Comprehensive MongoDB Seeding Script for Agile Sprint Impact Analyzer.
 
-This script generates a realistic "Golden Dataset" to test all AI and analytical features:
-- TF-IDF for Story Point Suggestion
-- Dense Vector Embeddings for Sprint Goal Alignment
-- XGBoost/PyTorch models for Effort, Schedule Risk, Quality Risk, and Productivity
-- 3-Phase Rule Engine (ADD, DEFER, SPLIT, SWAP)
-- Analytics: Velocity Charts and Burndown Charts
+Generates realistic, production-grade datasets across three enterprise projects
+with complex velocity patterns, regulatory constraints, and distributed team dynamics.
+All dates stored as ISO-formatted strings to prevent serialization issues.
 """
 
 import os
 import sys
 from datetime import datetime, timedelta
-from pymongo import MongoClient, ASCENDING, DESCENDING
-from bson import ObjectId
+from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration
-# ─────────────────────────────────────────────────────────────────────────────
-
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-DATABASE_NAME = "agile-tool"
+DATABASE_NAME = os.getenv("DATABASE_NAME", "agile-tool")
 
-# Connect to MongoDB
-def connect():
-    """Connect to MongoDB and return client and database."""
+def connect_mongodb():
+    """Establish synchronous MongoDB connection."""
     try:
-        client = MongoClient(MONGODB_URI)
-        client.admin.command('ping')  # Verify connection
+        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+        client.admin.command('ping')
         db = client[DATABASE_NAME]
         print(f"✓ Connected to MongoDB: {MONGODB_URI}")
         return client, db
     except Exception as e:
-        print(f"✗ Failed to connect to MongoDB: {e}")
+        print(f"✗ Connection failed: {e}")
         sys.exit(1)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Data Generation Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def generate_burndown_history(total_days: int, total_points: int, 
-                              final_remaining: int = 0, is_flat: bool = False) -> list:
-    """
-    Generate a realistic burndown history for a sprint.
-    
-    Args:
-        total_days: Number of sprint days
-        total_points: Total story points in sprint
-        final_remaining: Story points remaining at end (0 = perfect, >0 = spillover)
-        is_flat: If True, shows flatline at end (typical for delayed sprints)
-    
-    Returns:
-        List of daily burndown records
-    """
-    history = []
-    
-    if is_flat:
-        # Flatline pattern: slow burn, then stalls
-        daily_burn = total_points * 0.7 / (total_days * 0.5)  # Slow burn for first half
-        stall_point = int(total_days * 0.6)
-        
-        for day in range(total_days + 1):
-            if day <= stall_point:
-                remaining = max(0, total_points - (daily_burn * day))
-            else:
-                remaining = final_remaining  # Stalls out
-            
-            history.append({
-                "day": day,
-                "remaining_points": round(remaining, 1),
-                "timestamp": (datetime.now() - timedelta(days=total_days-day)).isoformat()
-            })
-    else:
-        # Perfect linear burn
-        daily_burn = (total_points - final_remaining) / total_days
-        
-        for day in range(total_days + 1):
-            remaining = max(final_remaining, total_points - (daily_burn * day))
-            history.append({
-                "day": day,
-                "remaining_points": round(remaining, 1),
-                "timestamp": (datetime.now() - timedelta(days=total_days-day)).isoformat()
-            })
-    
-    return history
+def clear_collections(db):
+    """Clear existing data."""
+    for collection in ['spaces', 'sprints', 'backlog_items']:
+        count = db[collection].delete_many({}).deleted_count
+        print(f"  ✓ {collection}: cleared {count} documents")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data Seeding Functions
+# PROJECT 1: FinTech Payment Orchestration
 # ─────────────────────────────────────────────────────────────────────────────
 
-def seed_space(db) -> str:
-    """
-    Create the Space: "FinTech Payment Portal"
-    
-    Returns:
-        space_id (MongoDB ObjectId as string)
-    """
-    print("\n[1] Seeding Space...")
+def seed_fintech(db):
+    """Fintech Payment Platform with high regulatory constraints."""
+    print("\n" + "="*80)
+    print("PROJECT 1: FinTech Payment Orchestration Platform")
+    print("="*80)
     
     space_doc = {
-        "name": "FinTech Payment Portal",
-        "description": "Core payment gateway infrastructure and user dashboard.",
+        "name": "FinTech Payment Orchestration Platform",
+        "description": "Distributed payment gateway with blockchain settlement and multi-currency support",
+        "max_assignees": 6,
+        "focus_hours_per_day": 6.5,
+        "risk_appetite": "Strict",
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
+    space = db.spaces.insert_one(space_doc)
+    space_id = str(space.inserted_id)
+    print(f"✓ Space: {space_id}")
+    
+    # Sprint 1: Cryptographic Foundation (28 SP)
+    now = datetime.now()
+    sprint1_start = now - timedelta(days=45)
+    sprint1_end = sprint1_start + timedelta(days=14)
+    
+    sprint1 = {
+        "name": "Sprint 1: Cryptographic Foundation & Compliance Framework",
+        "goal": "Establish NIST-compliant cryptographic infrastructure for payment transaction signing",
+        "duration_type": "2 Weeks",
+        "start_date": sprint1_start.strftime('%Y-%m-%d'),
+        "end_date": sprint1_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint1_start,
+        "updated_at": now,
+    }
+    s1 = db.sprints.insert_one(sprint1).inserted_id
+    
+    items1 = [
+        {
+            "title": "Implement HMAC-SHA256 Signature Generation Engine",
+            "description": "Develop cryptographic signature engine for transaction verification with hardware security module integration",
+            "type": "Task",
+            "priority": "Critical",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Configure PCI-DSS Level 1 Compliance Audit",
+            "description": "Execute security audit framework compliant with Payment Card Industry Data Security Standards Level 1",
+            "type": "Task",
+            "priority": "Critical",
+            "story_points": 5,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Deploy Key Rotation & Escrow Management System",
+            "description": "Establish automated cryptographic key lifecycle management with secure escrow protocols",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Implement OAuth 2.0 Authorization Code Flow",
+            "description": "Build secure authentication framework with JWT token generation and refresh token rotation",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 7,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items1)
+    print(f"  Sprint 1 (28 SP completed): {len(items1)} items")
+    
+    # Sprint 2: Microservices Architecture (35 SP)
+    sprint2_start = now - timedelta(days=30)
+    sprint2_end = sprint2_start + timedelta(days=14)
+    
+    sprint2 = {
+        "name": "Sprint 2: Microservices Architecture & Service Orchestration",
+        "goal": "Decompose monolithic payment system into resilient microservices with event-driven messaging",
+        "duration_type": "2 Weeks",
+        "start_date": sprint2_start.strftime('%Y-%m-%d'),
+        "end_date": sprint2_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint2_start,
+        "updated_at": now,
+    }
+    s2 = db.sprints.insert_one(sprint2).inserted_id
+    
+    items2 = [
+        {
+            "title": "Architect API Gateway with Request Throttling & Rate Limiting",
+            "description": "Design Kong/Envoy-based API gateway with circuit breaker pattern for fault isolation",
+            "type": "Story",
+            "priority": "Critical",
+            "story_points": 13,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Develop Payment Processing Microservice with Saga Pattern",
+            "description": "Implement distributed transaction coordination using choreography-based saga pattern",
+            "type": "Story",
+            "priority": "Critical",
+            "story_points": 13,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Deploy Message Queue Infrastructure (RabbitMQ/Kafka)",
+            "description": "Configure high-throughput asynchronous messaging with event sourcing capabilities",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 9,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items2)
+    print(f"  Sprint 2 (35 SP completed): {len(items2)} items")
+    
+    # Sprint 3: Observability (20 SP)
+    sprint3_start = now - timedelta(days=15)
+    sprint3_end = sprint3_start + timedelta(days=14)
+    
+    sprint3 = {
+        "name": "Sprint 3: Observability & Distributed Tracing Infrastructure",
+        "goal": "Implement comprehensive observability stack with distributed tracing for microservices",
+        "duration_type": "2 Weeks",
+        "start_date": sprint3_start.strftime('%Y-%m-%d'),
+        "end_date": sprint3_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint3_start,
+        "updated_at": now,
+    }
+    s3 = db.sprints.insert_one(sprint3).inserted_id
+    
+    items3 = [
+        {
+            "title": "Deploy Prometheus & Grafana Monitoring Stack",
+            "description": "Configure metrics collection with custom dashboards for transaction volume, latency percentiles",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Integrate OpenTelemetry for End-to-End Distributed Tracing",
+            "description": "Implement X-Ray/Jaeger tracing to track payment request flow across microservices",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Establish Alerting Rules for Payment Anomalies",
+            "description": "Create anomaly detection rules for transaction failures, latency spikes, fraud indicators",
+            "type": "Task",
+            "priority": "Medium",
+            "story_points": 4,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items3)
+    print(f"  Sprint 3 (20 SP completed): {len(items3)} items")
+    
+    # Sprint 4: Active (32 SP planned, 26 SP allocated)
+    sprint4_start = now - timedelta(days=3)
+    sprint4_end = sprint4_start + timedelta(days=11)
+    
+    sprint4 = {
+        "name": "Sprint 4: Blockchain Settlement Integration & Smart Contracts",
+        "goal": "Integrate Ethereum/Polygon for decentralized settlement with automated smart contract execution",
+        "duration_type": "2 Weeks",
+        "start_date": sprint4_start.strftime('%Y-%m-%d'),
+        "end_date": sprint4_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Active",
+        "assignees": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    s4 = db.sprints.insert_one(sprint4).inserted_id
+    
+    items4 = [
+        {
+            "title": "Develop Smart Contract for Multi-Currency Settlement",
+            "description": "Engineer Solidity smart contracts with atomic swap capability for cross-chain token exchanges",
+            "type": "Story",
+            "priority": "Critical",
+            "story_points": 13,
+            "status": "In Progress",
+            "space_id": space_id,
+            "sprint_id": str(s4),
+            "created_at": sprint4_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Implement Web3.js Integration for Blockchain Connectivity",
+            "description": "Build library for interacting with blockchain nodes, transaction signing, and receipt verification",
+            "type": "Task",
+            "priority": "Critical",
+            "story_points": 8,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": str(s4),
+            "created_at": sprint4_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Setup Gas Optimization & Cost Estimation Engine",
+            "description": "Develop gas fee calculation and optimization strategies for mainnet deployments",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": str(s4),
+            "created_at": sprint4_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items4)
+    print(f"  Sprint 4 (26 SP active, 6 SP free): {len(items4)} items")
+    
+    # Backlog
+    backlog_items = [
+        {
+            "title": "Implement Liquidity Pool Integration for DEX Swaps",
+            "description": "Connect to Uniswap V3 liquidity pools with slippage protection mechanisms",
+            "type": "Story",
+            "priority": "Medium",
+            "story_points": 13,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": None,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "title": "Refactor Legacy Settlement Engine (Technical Debt)",
+            "description": "Modernize deprecated payment settlement logic with event-sourcing patterns",
+            "type": "Task",
+            "priority": "Low",
+            "story_points": 8,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": None,
+            "created_at": now,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(backlog_items)
+    print(f"  Backlog: {len(backlog_items)} items")
+    
+    return space_id
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROJECT 2: Enterprise Identity Management
+# ─────────────────────────────────────────────────────────────────────────────
+
+def seed_identity(db):
+    """Enterprise SaaS Identity Platform."""
+    print("\n" + "="*80)
+    print("PROJECT 2: Enterprise Identity Management Platform")
+    print("="*80)
+    
+    space_doc = {
+        "name": "Enterprise Identity Management Platform",
+        "description": "Multi-tenant identity provider with federation, SSO, and granular access control",
         "max_assignees": 5,
         "focus_hours_per_day": 6.0,
         "risk_appetite": "Standard",
         "created_at": datetime.now(),
         "updated_at": datetime.now(),
     }
+    space = db.spaces.insert_one(space_doc)
+    space_id = str(space.inserted_id)
+    print(f"✓ Space: {space_id}")
     
-    result = db.spaces.insert_one(space_doc)
-    space_id = str(result.inserted_id)
+    now = datetime.now()
     
-    print(f"  ✓ Space created: {space_id}")
-    print(f"    Name: {space_doc['name']}")
-    print(f"    Description: {space_doc['description']}")
+    # Sprint 1: SAML/OIDC Federation (30 SP)
+    sprint1_start = now - timedelta(days=45)
+    sprint1_end = sprint1_start + timedelta(days=14)
     
-    return space_id
-
-def seed_completed_sprints(db, space_id: str) -> dict:
-    """
-    Create 3 completed sprints with realistic burndown histories.
+    sprint1 = {
+        "name": "Sprint 1: SAML/OIDC Federation Framework",
+        "goal": "Implement industry-standard identity federation protocols for enterprise integrations",
+        "duration_type": "2 Weeks",
+        "start_date": sprint1_start.strftime('%Y-%m-%d'),
+        "end_date": sprint1_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint1_start,
+        "updated_at": now,
+    }
+    s1 = db.sprints.insert_one(sprint1).inserted_id
     
-    Sprint 1: Perfect linear burn (25 SP planned, 25 SP completed)
-    Sprint 2: Flatline pattern (30 SP planned, 22 SP completed - spillover)
-    Sprint 3: Perfect linear burn (20 SP planned, 20 SP completed)
-    
-    Returns:
-        Dictionary mapping sprint names to sprint_ids for historical backlog creation
-    """
-    print("\n[2] Seeding Completed Sprints...")
-    
-    sprints_config = [
+    items1 = [
         {
-            "name": "Sprint 1: Foundation & Auth",
-            "goal": "Foundation & Auth",
-            "status": "Completed",
-            "planned_sp": 25,
-            "completed_sp": 25,
-            "duration_days": 14,
-            "is_flat": False,
-            "index": 0,
+            "title": "Develop SAML 2.0 Service Provider with Assertion Validation",
+            "description": "Build SP implementation with XML digital signature verification and encryption",
+            "type": "Story",
+            "priority": "Critical",
+            "story_points": 13,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
         },
         {
-            "name": "Sprint 2: User Profiles",
-            "goal": "User Profiles",
-            "status": "Completed",
-            "planned_sp": 30,
-            "completed_sp": 22,
-            "duration_days": 14,
-            "is_flat": True,
-            "index": 1,
+            "title": "Implement OpenID Connect Authorization Code Flow",
+            "description": "Build OIDC provider with JWT token issuance and claims mapping",
+            "type": "Task",
+            "priority": "Critical",
+            "story_points": 10,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
         },
         {
-            "name": "Sprint 3: Security Audit",
-            "goal": "Security Audit",
-            "status": "Completed",
-            "planned_sp": 20,
-            "completed_sp": 20,
-            "duration_days": 14,
-            "is_flat": False,
-            "index": 2,
+            "title": "Create IdP-Initiated SSO Workflow",
+            "description": "Implement deep linking and session management for seamless single sign-on",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 7,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
         },
     ]
+    db.backlog_items.insert_many(items1)
+    print(f"  Sprint 1 (30 SP completed): {len(items1)} items")
     
-    now = datetime.now()
-    sprint_ids_dict = {}
+    # Sprint 2: Multi-Tenancy (32 SP)
+    sprint2_start = now - timedelta(days=30)
+    sprint2_end = sprint2_start + timedelta(days=14)
     
-    for config in sprints_config:
-        # Calculate dates (past sprints)
-        days_offset = 45 - (config["index"] * 15)  # 45, 30, 15 days ago
-        start_date = now - timedelta(days=days_offset)
-        end_date = start_date + timedelta(days=config["duration_days"])
-        
-        sprint_doc = {
-            "name": config["name"],
-            "goal": config["goal"],
+    sprint2 = {
+        "name": "Sprint 2: Multi-Tenancy & Data Isolation",
+        "goal": "Implement tenant isolation with segregated databases and encryption at rest",
+        "duration_type": "2 Weeks",
+        "start_date": sprint2_start.strftime('%Y-%m-%d'),
+        "end_date": sprint2_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint2_start,
+        "updated_at": now,
+    }
+    s2 = db.sprints.insert_one(sprint2).inserted_id
+    
+    items2 = [
+        {
+            "title": "Architect Database Sharding Strategy for Tenant Isolation",
+            "description": "Design horizontal partitioning scheme with hash-based distribution across shards",
+            "type": "Story",
+            "priority": "Critical",
+            "story_points": 13,
+            "status": "Done",
             "space_id": space_id,
-            "status": config["status"],
-            "duration_type": "2 Weeks",
-            "start_date": start_date,
-            "end_date": end_date,
-            "assignees": [],
-            "created_at": start_date,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
             "updated_at": now,
-        }
-        
-        result = db.sprints.insert_one(sprint_doc)
-        sprint_id = str(result.inserted_id)
-        sprint_ids_dict[f"sprint{config['index'] + 1}"] = {
-            "id": sprint_id,
-            "name": config["name"],
-            "planned_sp": config["planned_sp"],
-            "completed_sp": config["completed_sp"]
-        }
-        
-        # Generate burndown history
-        final_remaining = config["planned_sp"] - config["completed_sp"]
-        burndown = generate_burndown_history(
-            total_days=config["duration_days"],
-            total_points=config["planned_sp"],
-            final_remaining=final_remaining,
-            is_flat=config["is_flat"]
-        )
-        
-        # Update sprint with burndown history
-        db.sprints.update_one(
-            {"_id": result.inserted_id},
-            {"$set": {"burndown_history": burndown}}
-        )
-        
-        print(f"  ✓ {config['name']} ({sprint_id})")
-        print(f"    Planned: {config['planned_sp']} SP | Completed: {config['completed_sp']} SP")
-        print(f"    Dates: {start_date.date()} to {end_date.date()}")
-        if config["is_flat"]:
-            print(f"    Pattern: Flatline (spillover)")
-        else:
-            print(f"    Pattern: Perfect linear burn")
+        },
+        {
+            "title": "Implement Encryption at Rest (TDE/AES-256)",
+            "description": "Configure transparent data encryption for all tenant data with key rotation",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Build Row-Level Security Policies (RLS) for Tenants",
+            "description": "Implement database-level RLS to prevent cross-tenant data leakage",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 5,
+            "status": "In Progress",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Create Multi-Tenant API Rate Limiting",
+            "description": "Implement per-tenant quota management with token bucket algorithm",
+            "type": "Task",
+            "priority": "Medium",
+            "story_points": 6,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items2)
+    print(f"  Sprint 2 (32 SP completed, with spillover): {len(items2)} items")
     
-    return sprint_ids_dict
-
-def seed_active_sprint(db, space_id: str) -> str:
-    """
-    Create the current active sprint: "Sprint 4: Stripe Integration"
-    - Capacity: 30 SP total
-    - Currently populated: 24 SP (6 SP free remaining)
+    # Sprint 3: Active (28 SP planned, 18 SP allocated)
+    sprint3_start = now - timedelta(days=3)
+    sprint3_end = sprint3_start + timedelta(days=11)
     
-    Returns:
-        sprint_id (MongoDB ObjectId as string)
-    """
-    print("\n[3] Seeding Active Sprint...")
-    
-    now = datetime.now()
-    start_date = now - timedelta(days=3)  # Started 3 days ago
-    end_date = now + timedelta(days=11)   # Ends in 11 days
-    
-    sprint_doc = {
-        "name": "Sprint 4: Stripe Integration",
-        "goal": "Integrate Stripe API to securely process live credit card transactions and handle webhooks.",
+    sprint3 = {
+        "name": "Sprint 3: Audit Logging & Compliance Reporting",
+        "goal": "Build comprehensive audit trails with SOC 2 Type II compliance and forensic analysis",
+        "duration_type": "2 Weeks",
+        "start_date": sprint3_start.strftime('%Y-%m-%d'),
+        "end_date": sprint3_end.strftime('%Y-%m-%d'),
         "space_id": space_id,
         "status": "Active",
-        "duration_type": "2 Weeks",
-        "start_date": start_date,
-        "end_date": end_date,
         "assignees": [],
         "created_at": now,
         "updated_at": now,
     }
+    s3 = db.sprints.insert_one(sprint3).inserted_id
     
-    result = db.sprints.insert_one(sprint_doc)
-    sprint_id = str(result.inserted_id)
-    
-    print(f"  ✓ Sprint created: {sprint_id}")
-    print(f"    Name: {sprint_doc['name']}")
-    print(f"    Goal: {sprint_doc['goal']}")
-    print(f"    Capacity: 30 SP (6 SP free remaining)")
-    print(f"    Status: Active")
-    
-    return sprint_id
-
-def seed_sprint_backlog_items(db, sprint_id: str):
-    """
-    Create 6 backlog items that fill the active sprint (24 SP total).
-    These are realistic payment-related tasks.
-    """
-    print("\n[4] Seeding Sprint Backlog Items (24 SP)...")
-    
-    items = [
+    items3 = [
         {
-            "title": "Setup Stripe account and API keys",
-            "description": "Create Stripe account, generate API keys, configure webhooks for payment events.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "In Progress",
-        },
-        {
-            "title": "Implement Stripe payment form component",
-            "description": "Build React component for Stripe card element with form validation and error handling.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 8,
-            "status": "To Do",
-        },
-        {
-            "title": "Create payment processing API endpoint",
-            "description": "Implement POST /api/payments endpoint that calls Stripe API and handles charge creation.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 8,
-            "status": "To Do",
-        },
-        {
-            "title": "Integrate webhook handling for payment events",
-            "description": "Listen for Stripe webhook events and update payment status in database.",
-            "type": "Task",
-            "priority": "Medium",
-            "story_points": 3,
-            "status": "To Do",
-        },
-    ]
-    
-    now = datetime.now()
-    
-    for item in items:
-        item_doc = {
-            "title": item["title"],
-            "description": item["description"],
-            "type": item["type"],
-            "priority": item["priority"],
-            "story_points": item["story_points"],
-            "status": item["status"],
-            "space_id": sprint_id.split("_")[0],  # Use space_id from sprint_id context
-            "sprint_id": sprint_id,
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        result = db.backlog_items.insert_one(item_doc)
-        print(f"  ✓ {item['title']} ({item['story_points']} SP)")
-    
-    print(f"  Total Sprint Items: 24 SP (6 SP capacity remaining)")
-
-def seed_historical_backlog_items(db, space_id: str, sprint_ids_dict: dict):
-    """
-    Create historical backlog items for the completed sprints.
-    These items are crucial for velocity calculations and analytics.
-    
-    Sprint 1: 5 items × 5 SP each = 25 SP (all Done)
-    Sprint 2: 4 Done items (22 SP) + 2 Unfinished items (8 SP) = 30 SP planned, 22 SP completed
-    Sprint 3: 4 items × 5 SP each = 20 SP (all Done)
-    """
-    print("\n[4] Seeding Historical Backlog Items...")
-    
-    sprint1_id = sprint_ids_dict["sprint1"]["id"]
-    sprint2_id = sprint_ids_dict["sprint2"]["id"]
-    sprint3_id = sprint_ids_dict["sprint3"]["id"]
-    
-    now = datetime.now()
-    total_items = 0
-    
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Sprint 1: Foundation & Auth (5 items, 5 SP each, all Done)
-    # ─────────────────────────────────────────────────────────────────────────────
-    print("\n  Sprint 1: Foundation & Auth (25 SP completed)")
-    
-    sprint1_items = [
-        {
-            "title": "Setup User Database Schema",
-            "description": "Design and create MongoDB collections for users, with proper indexing and validation.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Create Login API Endpoint",
-            "description": "Implement POST /api/auth/login with JWT token generation and session management.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Implement User Registration Flow",
-            "description": "Build registration endpoint with email validation, password hashing using bcrypt.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Setup Authentication Middleware",
-            "description": "Create middleware to verify JWT tokens and protect authenticated routes.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Create User Profile Endpoint",
-            "description": "Implement GET /api/user/profile to retrieve authenticated user information.",
-            "type": "Task",
-            "priority": "Medium",
-            "story_points": 5,
-            "status": "Done",
-        },
-    ]
-    
-    for item in sprint1_items:
-        item_doc = {
-            "title": item["title"],
-            "description": item["description"],
-            "type": item["type"],
-            "priority": item["priority"],
-            "story_points": item["story_points"],
-            "status": item["status"],
-            "space_id": space_id,
-            "sprint_id": sprint1_id,
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        db.backlog_items.insert_one(item_doc)
-        print(f"    ✓ {item['title']} ({item['story_points']} SP)")
-        total_items += 1
-    
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Sprint 2: User Profiles (4 Done + 2 Unfinished = 30 SP planned, 22 SP completed)
-    # ─────────────────────────────────────────────────────────────────────────────
-    print("\n  Sprint 2: User Profiles (22 SP completed, 8 SP spillover)")
-    
-    sprint2_items_done = [
-        {
-            "title": "Create User Profile Frontend",
-            "description": "Build React component to display user profile with edit capability.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 8,
-            "status": "Done",
-        },
-        {
-            "title": "Implement Profile Update API",
-            "description": "Create PUT /api/user/profile endpoint to update user information.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Add Profile Picture Upload",
-            "description": "Implement file upload functionality for profile pictures with image validation.",
-            "type": "Task",
-            "priority": "Medium",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Setup User Avatar Caching",
-            "description": "Configure CDN caching for user profile pictures to improve performance.",
-            "type": "Task",
-            "priority": "Low",
-            "story_points": 4,
-            "status": "Done",
-        },
-    ]
-    
-    sprint2_items_unfinished = [
-        {
-            "title": "Implement User Preferences System",
-            "description": "Create API to store and retrieve user preferences like theme, language, notifications.",
+            "title": "Implement Immutable Audit Log Storage (Write-Once)",
+            "description": "Design append-only event log with WORM (Write Once Read Many) storage",
             "type": "Story",
-            "priority": "Medium",
-            "story_points": 5,
-            "status": "In Progress",
-        },
-        {
-            "title": "Add Profile Analytics Dashboard",
-            "description": "Build analytics dashboard showing user activity, login history, and engagement metrics.",
-            "type": "Task",
-            "priority": "Low",
-            "story_points": 3,
-            "status": "To Do",
-        },
-    ]
-    
-    for item in sprint2_items_done:
-        item_doc = {
-            "title": item["title"],
-            "description": item["description"],
-            "type": item["type"],
-            "priority": item["priority"],
-            "story_points": item["story_points"],
-            "status": item["status"],
-            "space_id": space_id,
-            "sprint_id": sprint2_id,
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        db.backlog_items.insert_one(item_doc)
-        print(f"    ✓ {item['title']} ({item['story_points']} SP) - DONE")
-        total_items += 1
-    
-    for item in sprint2_items_unfinished:
-        item_doc = {
-            "title": item["title"],
-            "description": item["description"],
-            "type": item["type"],
-            "priority": item["priority"],
-            "story_points": item["story_points"],
-            "status": item["status"],
-            "space_id": space_id,
-            "sprint_id": sprint2_id,
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        db.backlog_items.insert_one(item_doc)
-        print(f"    ✓ {item['title']} ({item['story_points']} SP) - {item['status'].upper()} (SPILLOVER)")
-        total_items += 1
-    
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Sprint 3: Security Audit (4 items, 5 SP each, all Done)
-    # ─────────────────────────────────────────────────────────────────────────────
-    print("\n  Sprint 3: Security Audit (20 SP completed)")
-    
-    sprint3_items = [
-        {
-            "title": "Audit Authentication Security",
-            "description": "Review JWT implementation, token expiration, and password hashing standards.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Implement HTTPS and TLS",
-            "description": "Configure SSL/TLS certificates and enforce HTTPS across all endpoints.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Add Input Validation & Sanitization",
-            "description": "Implement input validation to prevent SQL injection and XSS attacks.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "Done",
-        },
-        {
-            "title": "Setup Security Logging",
-            "description": "Implement comprehensive logging for security events, failed logins, and suspicious activities.",
-            "type": "Task",
-            "priority": "Medium",
-            "story_points": 5,
-            "status": "Done",
-        },
-    ]
-    
-    for item in sprint3_items:
-        item_doc = {
-            "title": item["title"],
-            "description": item["description"],
-            "type": item["type"],
-            "priority": item["priority"],
-            "story_points": item["story_points"],
-            "status": item["status"],
-            "space_id": space_id,
-            "sprint_id": sprint3_id,
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        db.backlog_items.insert_one(item_doc)
-        print(f"    ✓ {item['title']} ({item['story_points']} SP)")
-        total_items += 1
-    
-    print(f"\n  Total Historical Items Created: {total_items}")
-    print(f"  Average Completed Velocity: ({sprint_ids_dict['sprint1']['completed_sp']} + {sprint_ids_dict['sprint2']['completed_sp']} + {sprint_ids_dict['sprint3']['completed_sp']}) / 3 = {(sprint_ids_dict['sprint1']['completed_sp'] + sprint_ids_dict['sprint2']['completed_sp'] + sprint_ids_dict['sprint3']['completed_sp']) / 3:.1f} SP/Sprint")
-
-def seed_backlog_items(db, space_id: str):
-    """
-    Create 5 unassigned backlog items that test specific ML rules:
-    
-    Item A: "Perfect Fit" - Tests 'ADD' rule
-    Item B: "Emergency" - Tests 'SWAP/ADD' via Layer 1 Blocker
-    Item C: "Monster" - Tests 'SPLIT' rule (TF-IDF predicts 13+ points)
-    Item D: "Distraction" - Tests 'DEFER' rule
-    Item E: "Tangential" - Tests 'EVALUATE/CONSIDER'
-    """
-    print("\n[5] Seeding Backlog Items (Testing ML Rules)...")
-    
-    items = [
-        {
-            "title": "Add CVC validation field to checkout",
-            "description": "Ensure the Stripe credit card form requires a 3-digit security code.",
-            "type": "Task",
-            "priority": "High",
-            "story_points": 5,
-            "status": "To Do",
-            "epic": "Payment Gateway",
-            "components": ["stripe", "frontend"],
-            "rule_test": "Item A - Perfect Fit (ADD)",
-            "notes": "High semantic alignment with Stripe Integration, low effort, high priority."
-        },
-        {
-            "title": "Production database crash on login",
-            "description": "Emergency! Users cannot log in. The service is down.",
-            "type": "Bug",
             "priority": "Critical",
-            "story_points": 8,
-            "status": "To Do",
-            "epic": "Auth",
-            "components": ["backend", "database"],
-            "rule_test": "Item B - Emergency (SWAP/ADD)",
-            "notes": "Mismatched epic but Critical priority triggers Layer 1 Blocker."
+            "story_points": 13,
+            "status": "In Progress",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
         },
         {
-            "title": "Refactor legacy monolithic transaction database",
-            "description": "Massive architectural overhaul of the cryptographic payload. Complex database migrations required. This involves complete restructuring of transaction tables, encryption mechanisms, and data integrity checks.",
-            "type": "Story",
-            "priority": "Medium",
-            "story_points": 13,  # Will trigger SPLIT if capacity exceeded
-            "status": "To Do",
-            "epic": "Payment Gateway",
-            "components": ["backend", "database"],
-            "rule_test": "Item C - Monster (SPLIT)",
-            "notes": "TF-IDF keywords trigger high point estimate. Exceeds free capacity, triggers SPLIT."
-        },
-        {
-            "title": "Change footer background color",
-            "description": "Marketing wants the bottom of the homepage to be dark blue instead of gray.",
+            "title": "Build Real-Time Compliance Dashboard",
+            "description": "Create executive dashboard with real-time compliance metrics and violation alerts",
             "type": "Task",
-            "priority": "Low",
-            "story_points": 3,
-            "status": "To Do",
-            "epic": "UI Polish",
-            "components": ["css", "frontend"],
-            "rule_test": "Item D - Distraction (DEFER)",
-            "notes": "Low semantic alignment with Stripe Integration goal, low priority."
-        },
-        {
-            "title": "Update PayPal webhook handler",
-            "description": "Adjust the endpoint for PayPal refund receipts. Currently the webhook handler for PayPal refunds is receiving incorrect refund status codes.",
-            "type": "Task",
-            "priority": "Medium",
+            "priority": "High",
             "story_points": 5,
             "status": "To Do",
-            "epic": "Payment Gateway",
-            "components": ["backend", "api"],
-            "rule_test": "Item E - Tangential (EVALUATE)",
-            "notes": "Related to payments but not Stripe-specific. Moderate alignment, consider for future sprint."
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
         },
     ]
+    db.backlog_items.insert_many(items3)
+    print(f"  Sprint 3 (18 SP active, 10 SP free): {len(items3)} items")
     
-    now = datetime.now()
-    
-    for item in items:
-        item_doc = {
-            "title": item["title"],
-            "description": item["description"],
-            "type": item["type"],
-            "priority": item["priority"],
-            "story_points": item["story_points"],
-            "status": item["status"],
-            "space_id": space_id,
-            "sprint_id": None,  # Unassigned to backlog
-            "epic": item.get("epic"),
-            "components": item.get("components", []),
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        result = db.backlog_items.insert_one(item_doc)
-        print(f"  ✓ {item['title']}")
-        print(f"    {item['rule_test']}")
-        print(f"    SP: {item['story_points']} | Priority: {item['priority']}")
-
-def create_indexes(db):
-    """Create necessary MongoDB indexes for performance."""
-    print("\n[6] Creating Indexes...")
-    
-    db.spaces.create_index([("created_at", DESCENDING)])
-    db.sprints.create_index([("space_id", ASCENDING)])
-    db.sprints.create_index([("status", ASCENDING)])
-    db.backlog_items.create_index([("space_id", ASCENDING)])
-    db.backlog_items.create_index([("sprint_id", ASCENDING)])
-    db.backlog_items.create_index([("priority", ASCENDING)])
-    
-    print("  ✓ All indexes created")
+    return space_id
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main Execution
+# PROJECT 3: Healthcare Data Analytics
+# ─────────────────────────────────────────────────────────────────────────────
+
+def seed_healthcare(db):
+    """HIPAA-compliant Healthcare Analytics Platform."""
+    print("\n" + "="*80)
+    print("PROJECT 3: Healthcare Data Analytics Platform")
+    print("="*80)
+    
+    space_doc = {
+        "name": "Healthcare Data Analytics Platform",
+        "description": "HIPAA-compliant analytics platform with HL7/FHIR interoperability",
+        "max_assignees": 4,
+        "focus_hours_per_day": 5.5,
+        "risk_appetite": "Strict",
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
+    space = db.spaces.insert_one(space_doc)
+    space_id = str(space.inserted_id)
+    print(f"✓ Space: {space_id}")
+    
+    now = datetime.now()
+    
+    # Sprint 1: HL7/FHIR Ingestion (25 SP)
+    sprint1_start = now - timedelta(days=45)
+    sprint1_end = sprint1_start + timedelta(days=14)
+    
+    sprint1 = {
+        "name": "Sprint 1: HL7/FHIR Data Ingestion Pipeline",
+        "goal": "Build interoperable data ingestion from healthcare systems using FHIR standards",
+        "duration_type": "2 Weeks",
+        "start_date": sprint1_start.strftime('%Y-%m-%d'),
+        "end_date": sprint1_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint1_start,
+        "updated_at": now,
+    }
+    s1 = db.sprints.insert_one(sprint1).inserted_id
+    
+    items1 = [
+        {
+            "title": "Develop FHIR Resource Parsers (Patient, Observation, Medication)",
+            "description": "Build parsers for core FHIR resources with schema validation",
+            "type": "Task",
+            "priority": "Critical",
+            "story_points": 10,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Create HL7v2 to FHIR Transformation Engine",
+            "description": "Build transformation pipelines converting legacy HL7v2 messages to FHIR resources",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Implement Data Quality Validation Rules",
+            "description": "Build validation framework for data completeness, consistency, and clinical accuracy",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 7,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s1),
+            "created_at": sprint1_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items1)
+    print(f"  Sprint 1 (25 SP completed): {len(items1)} items")
+    
+    # Sprint 2: De-identification (18 SP)
+    sprint2_start = now - timedelta(days=30)
+    sprint2_end = sprint2_start + timedelta(days=14)
+    
+    sprint2 = {
+        "name": "Sprint 2: De-identification & Privacy-Preserving Analytics",
+        "goal": "Implement HIPAA de-identification with differential privacy for population analytics",
+        "duration_type": "2 Weeks",
+        "start_date": sprint2_start.strftime('%Y-%m-%d'),
+        "end_date": sprint2_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Completed",
+        "assignees": [],
+        "created_at": sprint2_start,
+        "updated_at": now,
+    }
+    s2 = db.sprints.insert_one(sprint2).inserted_id
+    
+    items2 = [
+        {
+            "title": "Build HIPAA Safe Harbor De-identification Engine",
+            "description": "Implement automated removal of 18 protected health identifiers per HIPAA",
+            "type": "Task",
+            "priority": "Critical",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Implement Differential Privacy Algorithms",
+            "description": "Add noise/perturbation to aggregated results to prevent individual re-identification",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Create Data Governance Consent Management",
+            "description": "Build consent tracking and policy enforcement for research data usage",
+            "type": "Task",
+            "priority": "Medium",
+            "story_points": 2,
+            "status": "Done",
+            "space_id": space_id,
+            "sprint_id": str(s2),
+            "created_at": sprint2_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items2)
+    print(f"  Sprint 2 (18 SP completed): {len(items2)} items")
+    
+    # Sprint 3: Active (30 SP planned, 24 SP allocated)
+    sprint3_start = now - timedelta(days=3)
+    sprint3_end = sprint3_start + timedelta(days=11)
+    
+    sprint3 = {
+        "name": "Sprint 3: Analytics Engine & Clinical Reporting",
+        "goal": "Build query engine for population health analytics with physician-ready reports",
+        "duration_type": "2 Weeks",
+        "start_date": sprint3_start.strftime('%Y-%m-%d'),
+        "end_date": sprint3_end.strftime('%Y-%m-%d'),
+        "space_id": space_id,
+        "status": "Active",
+        "assignees": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    s3 = db.sprints.insert_one(sprint3).inserted_id
+    
+    items3 = [
+        {
+            "title": "Develop Federated Query Engine (Apache Iceberg)",
+            "description": "Build query engine for distributed clinical data with ACID transactions",
+            "type": "Story",
+            "priority": "Critical",
+            "story_points": 13,
+            "status": "In Progress",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Create Clinical Outcomes Report Builder",
+            "description": "Build templated reporting system for physician-ready clinical insights",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 8,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
+        },
+        {
+            "title": "Implement Cohort Definition DSL",
+            "description": "Create domain-specific language for defining patient cohorts for clinical trials",
+            "type": "Task",
+            "priority": "High",
+            "story_points": 3,
+            "status": "To Do",
+            "space_id": space_id,
+            "sprint_id": str(s3),
+            "created_at": sprint3_start,
+            "updated_at": now,
+        },
+    ]
+    db.backlog_items.insert_many(items3)
+    print(f"  Sprint 3 (24 SP active, 6 SP free): {len(items3)} items")
+    
+    return space_id
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    """Main seeding function."""
-    print("\n" + "="*70)
-    print("AGILE REPLANNING SYSTEM - GOLDEN DATASET SEEDING")
-    print("="*70)
+    print("\n" + "="*80)
+    print("MONGODB TEST DATA SEEDING - SPRINT IMPACT ANALYZER")
+    print("="*80)
     
-    client, db = connect()
+    client, db = connect_mongodb()
+    
+    print("\nClearing collections...")
+    clear_collections(db)
     
     try:
-        # Clear existing data
-        print("\n[0] Clearing existing data...")
-        db.spaces.delete_many({})
-        db.sprints.delete_many({})
-        db.backlog_items.delete_many({})
-        print("  ✓ Database cleared")
+        id1 = seed_fintech(db)
+        id2 = seed_identity(db)
+        id3 = seed_healthcare(db)
         
-        # Seed data
-        space_id = seed_space(db)
-        sprint_ids_dict = seed_completed_sprints(db, space_id)
-        seed_historical_backlog_items(db, space_id, sprint_ids_dict)
-        active_sprint_id = seed_active_sprint(db, space_id)
-        seed_sprint_backlog_items(db, active_sprint_id)
-        seed_backlog_items(db, space_id)
-        create_indexes(db)
-        
-        # Summary
-        print("\n" + "="*70)
-        print("SEEDING COMPLETE")
-        print("="*70)
-        
-        space_count = db.spaces.count_documents({})
-        sprint_count = db.sprints.count_documents({})
-        backlog_count = db.backlog_items.count_documents({})
-        
-        print(f"\nStatistics:")
-        print(f"  ✓ Spaces: {space_count}")
-        print(f"  ✓ Sprints: {sprint_count}")
-        print(f"  ✓ Backlog Items: {backlog_count}")
-        
-        print(f"\nSpace ID: {space_id}")
-        print(f"Active Sprint ID: {active_sprint_id}")
-        
-        print("\nDataset Structure:")
-        print("  • 1 Space (FinTech Payment Portal)")
-        print("  • 4 Sprints (3 Completed, 1 Active)")
-        print("    ├─ Sprint 1: Foundation & Auth")
-        print("    │   └─ 5 items × 5 SP = 25 SP (all Done → 100% velocity)")
-        print("    ├─ Sprint 2: User Profiles")
-        print("    │   ├─ 4 Done items = 22 SP")
-        print("    │   └─ 2 Unfinished items = 8 SP (spillover → 73% velocity)")
-        print("    ├─ Sprint 3: Security Audit")
-        print("    │   └─ 4 items × 5 SP = 20 SP (all Done → 100% velocity)")
-        print("    └─ Sprint 4: Stripe Integration (ACTIVE)")
-        print("        └─ 4 items = 24 SP (6 SP capacity remaining)")
-        print("  • Historical Items: 13 items total (for velocity calculations)")
-        print("  • Average Velocity: (25 + 22 + 20) / 3 = 22.33 SP/Sprint")
-        print("  • Active Sprint Backlog: 4 items (24 SP)")
-        print("  • Unassigned Backlog: 5 items (testing ML rules: ADD, SWAP, SPLIT, DEFER, EVALUATE)")
-        
-        print("\n" + "="*70)
-        print("Ready for testing AI/ML features and analytics!")
-        print("="*70 + "\n")
+        print("\n" + "="*80)
+        print("✓ SEEDING COMPLETE")
+        print("="*80)
+        print(f"\n✓ Spaces: {db.spaces.count_documents({})}")
+        print(f"✓ Sprints: {db.sprints.count_documents({})}")
+        print(f"✓ Backlog Items: {db.backlog_items.count_documents({})}")
+        print(f"\nProject Space IDs:")
+        print(f"  1. FinTech: {id1}")
+        print(f"  2. Identity: {id2}")
+        print(f"  3. Healthcare: {id3}")
         
     except Exception as e:
-        print(f"\n✗ Error during seeding: {e}")
+        print(f"\n✗ Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
     finally:
         client.close()
-        print("Database connection closed.")
+        print("\n✓ Connection closed\n")
 
 if __name__ == "__main__":
     main()

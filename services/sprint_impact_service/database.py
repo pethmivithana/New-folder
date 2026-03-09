@@ -39,13 +39,22 @@ def get_database():
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 def _sprint_helper(sprint) -> dict:
+    def format_date(date_obj):
+        if not date_obj:
+            return None
+        if isinstance(date_obj, str):
+            return date_obj
+        if isinstance(date_obj, datetime):
+            return date_obj.strftime('%Y-%m-%d')
+        return None
+    
     return {
         "id": str(sprint["_id"]),
         "name": sprint["name"],
         "goal": sprint.get("goal", ""),
         "duration_type": sprint.get("duration_type", "2 Weeks"),
-        "start_date": sprint.get("start_date").strftime('%Y-%m-%d') if sprint.get("start_date") else None,
-        "end_date": sprint.get("end_date").strftime('%Y-%m-%d') if sprint.get("end_date") else None,
+        "start_date": format_date(sprint.get("start_date")),
+        "end_date": format_date(sprint.get("end_date")),
         "space_id": sprint["space_id"],
         "status": sprint["status"],
         "assignees": sprint.get("assignees", []),
@@ -118,13 +127,16 @@ async def get_last_completed_sprint(space_id: str) -> dict | None:
     end = sprint.get("end_date")
     sprint_duration_days = 1
     
-    if isinstance(start, str):
-        start = datetime.strptime(start, '%Y-%m-%d')
-    if isinstance(end, str):
-        end = datetime.strptime(end, '%Y-%m-%d')
-    
-    if start and end:
-        sprint_duration_days = max(1, (end - start).days)
+    try:
+        if isinstance(start, str):
+            start = datetime.strptime(start, '%Y-%m-%d')
+        if isinstance(end, str):
+            end = datetime.strptime(end, '%Y-%m-%d')
+        
+        if start and end:
+            sprint_duration_days = max(1, (end - start).days)
+    except (ValueError, TypeError):
+        sprint_duration_days = 1
     
     # Count completed story points and assignees
     completed_story_points = 0
@@ -210,22 +222,25 @@ async def calculate_burndown_data(sprint_id: str) -> dict | None:
     remaining_points = total_points - done_points
 
     # Build ideal burndown line
-    if isinstance(start, str):
-        start = datetime.strptime(start, '%Y-%m-%d')
-    if isinstance(end, str):
-        end = datetime.strptime(end, '%Y-%m-%d')
+    try:
+        if isinstance(start, str):
+            start = datetime.strptime(start, '%Y-%m-%d')
+        if isinstance(end, str):
+            end = datetime.strptime(end, '%Y-%m-%d')
 
-    total_days = max(1, (end - start).days)
-    daily_ideal = total_points / total_days
+        total_days = max(1, (end - start).days)
+        daily_ideal = total_points / total_days
 
-    ideal_data = []
-    for day in range(total_days + 1):
-        current_date = start + timedelta(days=day)
-        ideal_remaining = max(0, total_points - daily_ideal * day)
-        ideal_data.append({
-            "date": current_date.strftime('%Y-%m-%d'),
-            "ideal": round(ideal_remaining, 1),
-        })
+        ideal_data = []
+        for day in range(total_days + 1):
+            current_date = start + timedelta(days=day)
+            ideal_remaining = max(0, total_points - daily_ideal * day)
+            ideal_data.append({
+                "date": current_date.strftime('%Y-%m-%d'),
+                "ideal": round(ideal_remaining, 1),
+            })
+    except (ValueError, TypeError):
+        ideal_data = []
 
     return {
         "sprint_name": sprint["name"],
@@ -263,23 +278,26 @@ async def calculate_burnup_data(sprint_id: str) -> dict | None:
         if item.get("status") == "Done":
             done_points += sp
 
-    if isinstance(start, str):
-        start = datetime.strptime(start, '%Y-%m-%d')
-    if isinstance(end, str):
-        end = datetime.strptime(end, '%Y-%m-%d')
+    try:
+        if isinstance(start, str):
+            start = datetime.strptime(start, '%Y-%m-%d')
+        if isinstance(end, str):
+            end = datetime.strptime(end, '%Y-%m-%d')
 
-    total_days = max(1, (end - start).days)
-    daily_target = total_points / total_days
+        total_days = max(1, (end - start).days)
+        daily_target = total_points / total_days
 
-    burnup_data = []
-    for day in range(total_days + 1):
-        current_date = start + timedelta(days=day)
-        target = min(total_points, round(daily_target * day, 1))
-        burnup_data.append({
-            "date": current_date.strftime('%Y-%m-%d'),
-            "target": target,
-            "scope": total_points,
-        })
+        burnup_data = []
+        for day in range(total_days + 1):
+            current_date = start + timedelta(days=day)
+            target = min(total_points, round(daily_target * day, 1))
+            burnup_data.append({
+                "date": current_date.strftime('%Y-%m-%d'),
+                "target": target,
+                "scope": total_points,
+            })
+    except (ValueError, TypeError):
+        burnup_data = []
 
     return {
         "sprint_name": sprint["name"],

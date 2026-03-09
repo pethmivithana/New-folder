@@ -56,8 +56,6 @@ async def create_backlog_item(item: BacklogItemCreate):
 @router.get("/space/{space_id}", response_model=List[BacklogItem])
 async def get_backlog_items_by_space(space_id: str):
     db = get_database()
-    if not ObjectId.is_valid(space_id):
-        raise HTTPException(status_code=400, detail="Invalid space ID")
     
     items = []
     async for item in db.backlog_items.find({"space_id": space_id}).sort("created_at", -1):
@@ -67,8 +65,6 @@ async def get_backlog_items_by_space(space_id: str):
 @router.get("/space/{space_id}/backlog", response_model=List[BacklogItem])
 async def get_unassigned_backlog_items(space_id: str):
     db = get_database()
-    if not ObjectId.is_valid(space_id):
-        raise HTTPException(status_code=400, detail="Invalid space ID")
     
     items = []
     async for item in db.backlog_items.find({
