@@ -13,6 +13,32 @@ from input_validation import validate_requirement
 
 router = APIRouter()
 
+def parse_datetime_string(date_str: str) -> datetime:
+    """
+    Parse datetime string in multiple formats.
+    Handles ISO 8601, YYYY-MM-DD, and common formats.
+    """
+    if not date_str:
+        return None
+    
+    # 1. Best practice: use fromisoformat for ISO 8601 (handles the 'T' separator)
+    if isinstance(date_str, str):
+        try:
+            # Replaces the space with 'T' if needed, though fromisoformat handles both
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            pass
+            
+    # 2. Fallback to specific formats for legacy data
+    formats = ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except (ValueError, TypeError):
+            continue
+    
+    raise ValueError(f"Unable to parse date string: {date_str}")
+
 
 async def calculate_dynamic_focus_hours(space_id: str, fallback: float = 6.0) -> float:
     """
@@ -44,9 +70,9 @@ async def calculate_dynamic_focus_hours(space_id: str, fallback: float = 6.0) ->
         
         # Calculate duration in days
         if isinstance(start_date, str):
-            start_date = datetime.strptime(start_date, "%Y-%m-%d")
+            start_date = parse_datetime_string(start_date)
         if isinstance(end_date, str):
-            end_date = datetime.strptime(end_date, "%Y-%m-%d")
+            end_date = parse_datetime_string(end_date)
         
         sprint_duration_days = max(1, (end_date - start_date).days)
         
@@ -111,14 +137,14 @@ def _build_sprint_context(sprint: dict, existing_items: list) -> dict:
 
     if start_str and end_str:
         try:
-            start = datetime.strptime(start_str, "%Y-%m-%d")
-            end   = datetime.strptime(end_str,   "%Y-%m-%d")
+            start = parse_datetime_string(start_str)
+            end   = parse_datetime_string(end_str)
             now   = datetime.utcnow()
             days_remaining   = max(0, (end - now).days)
             days_since_start = max(0, (now - start).days)
             total_days       = max(1, (end - start).days)
             sprint_progress  = round((days_since_start / total_days) * 100, 1)
-        except ValueError:
+        except (ValueError, TypeError):
             pass
 
     total_sp = sum(item.get("story_points", 0) for item in existing_items)

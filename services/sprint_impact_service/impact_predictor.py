@@ -4,7 +4,7 @@ impact_predictor.py
 Runs all 4 model predictions and formats results for the frontend.
 Productivity uses a hybrid XGBoost + MLP ensemble (averaged output).
 """
-
+import sys
 import io
 import traceback
 import numpy as np

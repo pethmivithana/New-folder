@@ -7,6 +7,36 @@ from database import get_database
 
 router = APIRouter()
 
+def parse_datetime_string(date_str: str) -> datetime:
+    """
+    Parse datetime string in multiple formats.
+    Handles: 'YYYY-MM-DD', ISO 8601 with time 'YYYY-MM-DDTHH:MM:SS.ffffff', and variations.
+    """
+    if not date_str:
+        return None
+    
+    # Try ISO format first (with or without timezone)
+    try:
+        return datetime.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        pass
+    
+    # Try YYYY-MM-DD format
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        pass
+    
+    # Try other common formats
+    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except (ValueError, TypeError):
+            continue
+    
+    raise ValueError(f"Unable to parse date string: {date_str}")
+
 def sprint_helper(sprint) -> dict:
     def format_date(date_obj):
         if not date_obj:
@@ -35,12 +65,12 @@ def calculate_dates(duration_type: str, start_date=None, end_date=None):
     if duration_type == DurationType.CUSTOM:
         # Convert string dates to datetime objects
         if isinstance(start_date, str):
-            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            start_dt = parse_datetime_string(start_date)
         else:
             start_dt = datetime.combine(start_date, datetime.min.time()) if start_date else datetime.utcnow()
         
         if isinstance(end_date, str):
-            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            end_dt = parse_datetime_string(end_date)
         else:
             end_dt = datetime.combine(end_date, datetime.min.time()) if end_date else start_dt + timedelta(weeks=2)
         

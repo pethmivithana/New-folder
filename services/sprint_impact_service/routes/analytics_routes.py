@@ -1,12 +1,116 @@
 from fastapi import APIRouter, HTTPException
+from datetime import datetime
 from database import (
     get_sprint_by_id,
     get_space_velocity_history,
     calculate_burndown_data,
     calculate_burnup_data,
+    get_completed_sprints,
 )
 
 router = APIRouter()
+
+def parse_datetime_string(date_str) -> datetime:
+    """
+    Parse datetime string in multiple formats.
+    Handles: 'YYYY-MM-DD', ISO 8601 with time, and variations.
+    """
+    if not date_str:
+        return None
+    
+    if isinstance(date_str, datetime):
+        return date_str
+    
+    # Try ISO format first (with or without timezone)
+    try:
+        return datetime.fromisoformat(date_str)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    
+    # Try YYYY-MM-DD format
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        pass
+    
+    # Try other common formats
+    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except (ValueError, TypeError):
+            continue
+    
+    raise ValueError(f"Unable to parse date string: {date_str}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 3: Team Pace Calculation (for SP to Hours Translation)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/spaces/{space_id}/team-pace")
+async def get_team_pace(space_id: str):
+    """
+    Calculate TEAM_PACE (story_points / dev_days) from historical sprint data.
+    
+    Returns:
+      team_pace (float): Average SP completed per development day
+      hours_per_sp (float): Derived conversion factor (8 / team_pace)
+      sprints_analyzed (int): Number of sprints used in calculation
+      metadata: Historical sprint summary
+    """
+    try:
+        completed_sprints = await get_completed_sprints(space_id)
+        
+        if not completed_sprints:
+            return {
+                "team_pace": 1.0,
+                "hours_per_sp": 8.0,
+                "sprints_analyzed": 0,
+                "metadata": "No completed sprints found. Using default pace (1.0 SP/day).",
+            }
+        
+        total_completed_sp = sum(s.get("completed_sp", 0) for s in completed_sprints)
+        total_dev_days = 0
+        
+        for sprint in completed_sprints:
+            start = sprint.get("start_date")
+            end = sprint.get("end_date")
+            if start and end:
+                try:
+                    # Simple day count (in production, account for weekends/holidays)
+                    if isinstance(start, str):
+                        start = parse_datetime_string(start)
+                    if isinstance(end, str):
+                        end = parse_datetime_string(end)
+                    days = (end - start).days
+                    if days > 0:
+                        total_dev_days += days
+                except (ValueError, TypeError):
+                    continue
+        
+        if total_dev_days == 0 or total_completed_sp == 0:
+            return {
+                "team_pace": 1.0,
+                "hours_per_sp": 8.0,
+                "sprints_analyzed": len(completed_sprints),
+                "metadata": "Insufficient data for pace calculation. Using default pace (1.0 SP/day).",
+            }
+        
+        team_pace = round(total_completed_sp / total_dev_days, 2)
+        hours_per_sp = round(8.0 / team_pace, 2)
+        
+        return {
+            "team_pace": team_pace,
+            "hours_per_sp": hours_per_sp,
+            "sprints_analyzed": len(completed_sprints),
+            "total_completed_sp": total_completed_sp,
+            "total_dev_days": total_dev_days,
+            "metadata": f"Based on {len(completed_sprints)} completed sprints",
+        }
+    except Exception as e:
+        print(f"Team pace calculation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/sprints/{sprint_id}/burndown")

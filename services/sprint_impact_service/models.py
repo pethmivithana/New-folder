@@ -84,6 +84,7 @@ class Sprint(BaseModel):
     space_id: str
     status: SprintStatus
     assignees: List[int] = []
+    historical_pace: float = 1.0  # TEAM_PACE: completed_sp / dev_days (default 1.0)
     created_at: datetime
     updated_at: datetime
 
