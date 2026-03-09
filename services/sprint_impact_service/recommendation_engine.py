@@ -87,7 +87,25 @@ class RecommendationEngine:
         sprint_context: Dict,
         active_items:   List[Dict],
         ml_predictions: Dict,
+        goal_alignment: Optional[Dict] = None,
     ) -> Dict:
+        """
+        Generate a recommendation considering:
+        1. Sprint state (days remaining, current load, capacity)
+        2. Ticket properties (SP, priority, description)
+        3. ML predictions (schedule risk, quality risk, productivity impact)
+        4. Goal alignment score (if provided) — determines strategic value
+        
+        Args:
+            new_ticket: Ticket data {title, description, story_points, priority}
+            sprint_context: Sprint state {days_remaining, current_load, velocity}
+            active_items: List of items already in sprint
+            ml_predictions: ML model outputs {schedule_risk, quality_risk, velocity_change}
+            goal_alignment: Optional alignment data {score (0-1), level, recommendation}
+        
+        Returns:
+            Recommendation dict with action, reasoning, impact analysis, action plan
+        """
         days_remaining = sprint_context.get("days_remaining", 10)
         current_load   = sprint_context.get("sprint_load_7d", 0)
         velocity       = sprint_context.get("team_velocity_14d", 30)
@@ -104,6 +122,18 @@ class RecommendationEngine:
             "free_capacity",
             max(0, real_capacity - current_load),
         ))
+        
+        # Extract goal alignment signal (if provided)
+        alignment_score = 0.5  # Default neutral
+        alignment_boost = 0.0  # Boost confidence if well-aligned
+        if goal_alignment:
+            alignment_score = goal_alignment.get("score", 0.5)
+            # If strongly aligned (>=0.50), boost confidence in other signals
+            if alignment_score >= 0.50:
+                alignment_boost = 5.0  # Lower thresholds by 5%
+            # If poorly aligned (<0.30), decrease confidence
+            elif alignment_score < 0.30:
+                alignment_boost = -10.0  # Raise thresholds by 10%
 
         # ── Rule 0: Sprint almost over ────────────────────────────────────────
         if days_remaining < self.MIN_DAYS_FOR_NEW_WORK and priority not in ("Critical", "Highest"):
@@ -192,28 +222,42 @@ class RecommendationEngine:
         # Triggers if ANY of the three ML signals exceeds its threshold.
         # The reason text dynamically names which signal(s) caused the deferral.
         # Uses module-level calibration constants for threshold tuning.
+        # Adjust thresholds based on goal alignment
+        adjusted_schedule_threshold = max(20, self.schedule_risk_threshold + alignment_boost)
+        adjusted_quality_threshold = max(50, self.quality_risk_threshold + alignment_boost)
+        adjusted_prod_threshold = self.prod_drag_threshold - (alignment_boost * 0.5)
+        
         triggered = []
-        if schedule_risk > self.schedule_risk_threshold:
-            triggered.append(f"Schedule Risk is too high ({schedule_risk:.0f}%)")
-        if velocity_change < self.prod_drag_threshold:
+        if schedule_risk > adjusted_schedule_threshold:
+            triggered.append(f"Schedule Risk is too high ({schedule_risk:.0f}% > {adjusted_schedule_threshold:.0f}%)")
+        if velocity_change < adjusted_prod_threshold:
             triggered.append(f"Productivity Drag is too high ({abs(velocity_change):.0f}% slowdown)")
-        if quality_risk > self.quality_risk_threshold:
-            triggered.append(f"Quality Risk is too high ({quality_risk:.0f}% defect probability)")
+        if quality_risk > adjusted_quality_threshold:
+            triggered.append(f"Quality Risk is too high ({quality_risk:.0f}% > {adjusted_quality_threshold:.0f}%)")
 
         if triggered:
             trigger_text = " | ".join(triggered)
+            alignment_context = ""
+            if goal_alignment and alignment_score < 0.50:
+                alignment_context = f" (Task alignment with sprint goal is only {alignment_score:.0%} — additional caution applied.)"
+            
             return self._build(
                 action="DEFER",
                 reason=(
-                    f"ML Safety Net triggered — Deferred because: {trigger_text}. "
-                    f"Adding '{title}' risks the sprint goal."
+                    f"ML Safety Net triggered — Deferred because: {trigger_text}.{alignment_context} "
+                    f"Adding '{title}' risks the sprint goal and timeline."
                 ),
                 impact={
-                    "schedule_risk":   schedule_risk,
-                    "velocity_change": velocity_change,
-                    "quality_risk":    quality_risk,
-                    "triggers":        triggered,
-                    "rule_triggered":  "Rule 2 — ML Safety Net",
+                    "schedule_risk":      schedule_risk,
+                    "velocity_change":    velocity_change,
+                    "quality_risk":       quality_risk,
+                    "alignment_score":    alignment_score,
+                    "adjusted_thresholds": {
+                        "schedule": adjusted_schedule_threshold,
+                        "quality": adjusted_quality_threshold,
+                    },
+                    "triggers":           triggered,
+                    "rule_triggered":     "Rule 2 — ML Safety Net",
                 },
                 plan={
                     "next_step": (
@@ -223,26 +267,41 @@ class RecommendationEngine:
                 },
             )
 
-        # ── Rule 3: Enough capacity → ADD ─────────────────────────────────────
+        # ── Rule 3: Enough capacity → ADD (with alignment sentiment) ──────────────
         if free_capacity >= new_sp:
             safety_note = ""
+            alignment_sentiment = ""
             if quality_risk > 50:
                 safety_note = (
                     f" Note: quality risk is elevated ({quality_risk:.0f}%) — "
                     "allocate extra QA time."
                 )
+            if goal_alignment:
+                if alignment_score >= 0.50:
+                    alignment_sentiment = (
+                        f" Task is strongly aligned with sprint goal ({alignment_score:.0%}) — "
+                        "adds strategic value."
+                    )
+                elif alignment_score < 0.30:
+                    alignment_sentiment = (
+                        f" WARNING: Task is not well-aligned with sprint goal ({alignment_score:.0%}). "
+                        "Consider deferring despite capacity."
+                    )
+            
             return self._build(
                 action="ADD",
                 reason=(
                     f"Sprint has {free_capacity:.1f} SP free and all ML signals are within "
                     f"safe thresholds (Schedule: {schedule_risk:.0f}%, "
                     f"Drag: {abs(velocity_change):.0f}%, Quality: {quality_risk:.0f}%). "
-                    f"Safe to add '{title}'.{safety_note}"
+                    f"Safe to add '{title}'.{safety_note}{alignment_sentiment}"
                 ),
                 impact={
-                    "schedule_risk":   schedule_risk,
-                    "velocity_change": velocity_change,
-                    "free_capacity":   free_capacity,
+                    "schedule_risk":      schedule_risk,
+                    "velocity_change":    velocity_change,
+                    "free_capacity":      free_capacity,
+                    "alignment_score":    alignment_score,
+                    "rule_triggered":     "Rule 3 — Capacity Available",
                 },
             )
 

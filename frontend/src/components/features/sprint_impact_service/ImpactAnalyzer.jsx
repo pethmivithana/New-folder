@@ -9,7 +9,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from './api';
 import { formatSPWithHours, fetchTeamPace } from '../../../utils/hourTranslation';
-import { checkSprintAlignment, isScopeCreep, getAlignmentColors, getScopeCreepWarning } from '../../../utils/sprintAlignment';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ACTION_META = {
@@ -322,37 +321,6 @@ function RiskBanner({ status }) {
   );
 }
 
-// ─── ScopeCreepWarning (MODULE 4 — Alignment check) ─────────────────────────
-function ScopeCreepWarning({ alignmentScore, taskTitle, onDismiss }) {
-  if (!isScopeCreep(alignmentScore, 0.4)) return null;
-  
-  const colors = getAlignmentColors('UNALIGNED');
-  const warning = getScopeCreepWarning(alignmentScore, taskTitle);
-  
-  return (
-    <div style={{ background:colors.bg, border:`1.5px solid ${colors.border}`, borderRadius:12, padding:'14px 16px', marginBottom:16, display:'flex', alignItems:'flex-start', gap:12 }}>
-      <div style={{ width:32, height:32, borderRadius:8, background:'#fff', border:`1px solid ${colors.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
-        ⚠️
-      </div>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:13, fontWeight:700, color:colors.accent, marginBottom:4 }}>Potential Scope Creep</div>
-        <div style={{ fontSize:12, color:colors.text, lineHeight:1.5 }}>{warning}</div>
-        <div style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>
-          Alignment Score: <strong style={{ color:colors.accent }}>{Math.round(alignmentScore * 100)}%</strong> (threshold: 40%)
-        </div>
-      </div>
-      {onDismiss && (
-        <button 
-          onClick={onDismiss}
-          style={{ background:'none', border:'none', cursor:'pointer', color:colors.border, fontSize:18, padding:0, lineHeight:1, flexShrink:0 }}
-        >
-          ✕
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ─── STAlignmentCard (Phase 1 — alignment state only, no action verbs) ───────
 function STAlignmentCard({ result, onClear }) {
   const [expanded, setExpanded] = useState(false);
@@ -580,10 +548,6 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
   const [hoursPerSP,     setHoursPerSP]     = useState(8.0);
   const [loadingPace,    setLoadingPace]    = useState(true);
   
-  // MODULE 4: Sprint Goal Alignment
-  const [simpleAlignment, setSimpleAlignment] = useState(null);
-  const [checkingAlignment, setCheckingAlignment] = useState(false);
-  
   const ref = useRef(null);
 
   useEffect(() => {
@@ -629,23 +593,6 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
       setAlignment(r);
     } catch (e) { alert('Alignment check failed: ' + e.message); }
     finally { setAligning(false); }
-  };
-
-  // MODULE 4: Simple TF-IDF sprint goal alignment (quick scope creep check)
-  const checkSimpleAlignment = async () => {
-    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
-    setCheckingAlignment(true);
-    setSimpleAlignment(null);
-    try {
-      const taskDescription = `${form.title} ${form.description}`.trim();
-      const r = await checkSprintAlignment(sprint.goal || '', taskDescription);
-      setSimpleAlignment(r);
-    } catch (e) {
-      console.error('Simple alignment check failed:', e);
-      alert('Could not check alignment: ' + e.message);
-    } finally {
-      setCheckingAlignment(false);
-    }
   };
 
   // NEW: Sentence-Transformer alignment — deterministic, zero-latency
@@ -821,13 +768,6 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
           )}
 
           {/* Heavy ML impact analysis */}
-  {/* MODULE 4: Quick Scope Creep Check Button */}
-  <button onClick={checkSimpleAlignment} disabled={checkingAlignment || !sprint}
-  style={{ padding:'10px 14px', background:'#fffbeb', border:'1px solid #fcd34d', color:'#d97706', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:6, opacity:(checkingAlignment||!sprint)?0.6:1, transition:'all .2s', letterSpacing:'0.02em', width:'100%', marginBottom:10 }}
-  >
-  {checkingAlignment ? <><div style={{ width:12, height:12, border:'2px solid #fcd34d', borderTopColor:'#d97706', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Checking alignment…</> : <>⚠️ Check Scope Creep</>}
-  </button>
-  
   <button onClick={analyze} disabled={loading || !sprint}
   style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?0.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
   >
@@ -837,15 +777,6 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
 
   {/* ═══ RIGHT — Results ═══ */}
   <div ref={ref} style={{ display:'flex', flexDirection:'column', gap:14 }}>
-  
-  {/* MODULE 4: Scope Creep Warning */}
-  {simpleAlignment && (
-    <ScopeCreepWarning 
-      alignmentScore={simpleAlignment.alignment_score}
-      taskTitle={form.title}
-      onDismiss={() => setSimpleAlignment(null)}
-    />
-  )}
   
   {/* MODULE 3: CapacityBar now shows hours */}
   {ctx && sprint && (
