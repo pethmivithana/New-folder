@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from datetime import datetime
 from database import (
     get_sprint_by_id,
     get_space_velocity_history,
@@ -8,6 +9,39 @@ from database import (
 )
 
 router = APIRouter()
+
+def parse_datetime_string(date_str) -> datetime:
+    """
+    Parse datetime string in multiple formats.
+    Handles: 'YYYY-MM-DD', ISO 8601 with time, and variations.
+    """
+    if not date_str:
+        return None
+    
+    if isinstance(date_str, datetime):
+        return date_str
+    
+    # Try ISO format first (with or without timezone)
+    try:
+        return datetime.fromisoformat(date_str)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    
+    # Try YYYY-MM-DD format
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        pass
+    
+    # Try other common formats
+    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except (ValueError, TypeError):
+            continue
+    
+    raise ValueError(f"Unable to parse date string: {date_str}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -43,15 +77,17 @@ async def get_team_pace(space_id: str):
             start = sprint.get("start_date")
             end = sprint.get("end_date")
             if start and end:
-                # Simple day count (in production, account for weekends/holidays)
-                from datetime import datetime
-                if isinstance(start, str):
-                    start = datetime.fromisoformat(start)
-                if isinstance(end, str):
-                    end = datetime.fromisoformat(end)
-                days = (end - start).days
-                if days > 0:
-                    total_dev_days += days
+                try:
+                    # Simple day count (in production, account for weekends/holidays)
+                    if isinstance(start, str):
+                        start = parse_datetime_string(start)
+                    if isinstance(end, str):
+                        end = parse_datetime_string(end)
+                    days = (end - start).days
+                    if days > 0:
+                        total_dev_days += days
+                except (ValueError, TypeError):
+                    continue
         
         if total_dev_days == 0 or total_completed_sp == 0:
             return {

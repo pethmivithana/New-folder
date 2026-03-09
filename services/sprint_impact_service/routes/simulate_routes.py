@@ -26,6 +26,36 @@ from explanation_generator import explanation_generator, ExplanationResult
 
 router = APIRouter()
 
+def parse_datetime_string(date_str: str) -> datetime:
+    """
+    Parse datetime string in multiple formats.
+    Handles: 'YYYY-MM-DD', ISO 8601 with time 'YYYY-MM-DDTHH:MM:SS.ffffff', and variations.
+    """
+    if not date_str:
+        return None
+    
+    # Try ISO format first (with or without timezone)
+    try:
+        return datetime.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        pass
+    
+    # Try YYYY-MM-DD format
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        pass
+    
+    # Try other common formats
+    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except (ValueError, TypeError):
+            continue
+    
+    raise ValueError(f"Unable to parse date string: {date_str}")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Request / Response Schemas
@@ -151,13 +181,16 @@ def _build_current_state(sprint: dict, existing_items: list[dict]) -> CurrentSta
     sprint_progress = 0.0
 
     if start_str and end_str:
-        start = datetime.strptime(start_str, "%Y-%m-%d")
-        end   = datetime.strptime(end_str,   "%Y-%m-%d")
-        now   = datetime.utcnow()
-        days_remaining  = max(0, (end - now).days)
-        days_since_start = max(0, (now - start).days)
-        total_days       = max(1, (end - start).days)
-        sprint_progress  = round((days_since_start / total_days) * 100, 1)
+        try:
+            start = parse_datetime_string(start_str)
+            end   = parse_datetime_string(end_str)
+            now   = datetime.utcnow()
+            days_remaining  = max(0, (end - now).days)
+            days_since_start = max(0, (now - start).days)
+            total_days       = max(1, (end - start).days)
+            sprint_progress  = round((days_since_start / total_days) * 100, 1)
+        except (ValueError, TypeError):
+            pass
 
     total_sp       = sum(item.get("story_points", 0) for item in existing_items)
     hours_remaining = days_remaining * WORK_HOURS_PER_DAY
@@ -182,13 +215,16 @@ def _build_sprint_context(sprint: dict, existing_items: list[dict]) -> dict:
     sprint_progress  = 0.0
 
     if start_str and end_str:
-        start = datetime.strptime(start_str, "%Y-%m-%d")
-        end   = datetime.strptime(end_str,   "%Y-%m-%d")
-        now   = datetime.utcnow()
-        days_remaining   = max(0, (end - now).days)
-        days_since_start = max(0, (now - start).days)
-        total_days       = max(1, (end - start).days)
-        sprint_progress  = days_since_start / total_days
+        try:
+            start = parse_datetime_string(start_str)
+            end   = parse_datetime_string(end_str)
+            now   = datetime.utcnow()
+            days_remaining   = max(0, (end - now).days)
+            days_since_start = max(0, (now - start).days)
+            total_days       = max(1, (end - start).days)
+            sprint_progress  = days_since_start / total_days
+        except (ValueError, TypeError):
+            pass
 
     total_sp = sum(item.get("story_points", 0) for item in existing_items)
 
