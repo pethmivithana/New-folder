@@ -79,8 +79,9 @@ async def create_sprint(sprint: SprintCreate):
     )
     
     sprint_dict = sprint.dict()
-    sprint_dict["start_date"] = start_date
-    sprint_dict["end_date"] = end_date
+    # Store dates as strings in the format YYYY-MM-DD
+    sprint_dict["start_date"] = start_date.strftime('%Y-%m-%d') if isinstance(start_date, datetime) else start_date
+    sprint_dict["end_date"] = end_date.strftime('%Y-%m-%d') if isinstance(end_date, datetime) else end_date
     sprint_dict["status"] = SprintStatus.PLANNED
     sprint_dict["assignees"] = []
     sprint_dict["created_at"] = datetime.utcnow()

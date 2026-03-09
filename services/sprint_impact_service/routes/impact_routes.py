@@ -51,9 +51,10 @@ async def calculate_dynamic_focus_hours(space_id: str, fallback: float = 6.0) ->
         sprint_duration_days = max(1, (end_date - start_date).days)
         
         # Get all completed items from this sprint
+        sprint_id_str = str(completed_sprint["_id"])
         completed_items = await db.backlog_items.find(
             {
-                "sprint_id": completed_sprint["_id"],
+                "sprint_id": sprint_id_str,
                 "status": "Done"
             }
         ).to_list(length=None)
