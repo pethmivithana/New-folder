@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime
 from bson import ObjectId
-from models import Space, SpaceCreate, SpaceUpdate, SprintStatus, Status, BacklogType, Priority, DurationType
+from models import Space, SpaceCreate, SpaceUpdate
 from database import get_database
 
 router = APIRouter()
@@ -26,67 +26,6 @@ async def create_space(space: SpaceCreate):
     space_dict["created_at"] = datetime.utcnow()
     space_dict["updated_at"] = datetime.utcnow()
     result = await db.spaces.insert_one(space_dict)
-    space_id = str(result.inserted_id)
-    
-    # Create default sprint
-    sprint_start = datetime.utcnow()
-    sprint_end = sprint_start + timedelta(weeks=2)
-    
-    default_sprint = {
-        "name": "Sprint 1",
-        "goal": "Initial sprint for project setup",
-        "duration_type": DurationType.TWO_WEEKS,
-        "start_date": sprint_start,
-        "end_date": sprint_end,
-        "space_id": space_id,
-        "status": SprintStatus.PLANNED,
-        "assignees": [],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-    await db.sprints.insert_one(default_sprint)
-    
-    # Create default backlog items
-    default_items = [
-        {
-            "title": "Setup development environment",
-            "description": "Configure development tools and dependencies",
-            "type": BacklogType.TASK,
-            "priority": Priority.HIGH,
-            "story_points": 5,
-            "space_id": space_id,
-            "sprint_id": None,
-            "status": Status.TODO,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        },
-        {
-            "title": "Create project documentation",
-            "description": "Document project structure and guidelines",
-            "type": BacklogType.TASK,
-            "priority": Priority.MEDIUM,
-            "story_points": 8,
-            "space_id": space_id,
-            "sprint_id": None,
-            "status": Status.TODO,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        },
-        {
-            "title": "Setup CI/CD pipeline",
-            "description": "Configure automated testing and deployment",
-            "type": BacklogType.STORY,
-            "priority": Priority.HIGH,
-            "story_points": 13,
-            "space_id": space_id,
-            "sprint_id": None,
-            "status": Status.TODO,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
-    ]
-    await db.backlog_items.insert_many(default_items)
-    
     new_space = await db.spaces.find_one({"_id": result.inserted_id})
     return space_helper(new_space)
 
