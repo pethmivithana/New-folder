@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import Sidebar from "./components/common/SideBar";
+import Sidebar from "./components/common/Sidebar";
 import Header from "./components/common/Header";
 import HomePage from "./components/common/HomePage";
 import ModulePage from "./components/common/ModulePage";

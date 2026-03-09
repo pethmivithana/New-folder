@@ -94,8 +94,6 @@ async def create_sprint(sprint: SprintCreate):
 @router.get("/space/{space_id}", response_model=List[Sprint])
 async def get_sprints_by_space(space_id: str):
     db = get_database()
-    if not ObjectId.is_valid(space_id):
-        raise HTTPException(status_code=400, detail="Invalid space ID")
     
     sprints = []
     async for sprint in db.sprints.find({"space_id": space_id}).sort("created_at", -1):
