@@ -530,7 +530,7 @@ function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onAc
 }
 
 // ─── ImpactAnalyzer (main) ────────────────────────���───────────────────────────
-export default function ImpactAnalyzer({ sprints, spaceId }) {
+export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentOnActionDone }) {
   const [sprint,    setSprint]    = useState(null);
   const [form,      setForm]      = useState({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' });
   const [analysis,  setAnalysis]  = useState(null);
@@ -845,7 +845,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
                     sprintId={sprint?.id}
                     spaceId={resolvedSpaceId}
                     logId={analysis.log_id}
-                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); }}
+                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); parentOnActionDone?.(r); }}
                   />
                 </div>
               )}
@@ -860,7 +860,7 @@ export default function ImpactAnalyzer({ sprints, spaceId }) {
                     sprintId={sprint?.id}
                     spaceId={resolvedSpaceId}
                     logId={analysis.log_id}
-                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); }}
+                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); parentOnActionDone?.(r); }}
                   />
                 </div>
               )}

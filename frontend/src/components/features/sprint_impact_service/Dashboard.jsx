@@ -95,6 +95,17 @@ export default function Dashboard({ space, onBack }) {
     }
   };
 
+  const handleImpactActionDone = (actionResult) => {
+    // When an action completes in ImpactAnalyzer (DEFER, SPLIT, etc.)
+    // Add the new item to unassignedItems if it wasn't assigned to a sprint
+    if (actionResult?.data && !actionResult.data.sprint_id) {
+      setUnassignedItems([actionResult.data, ...unassignedItems]);
+    } else {
+      // For items assigned to sprints, reload to ensure accuracy
+      loadData();
+    }
+  };
+
   const handleAssignToSprint = async (itemId, sprintId) => {
     if (!sprintId) return;
     try {
@@ -370,7 +381,7 @@ export default function Dashboard({ space, onBack }) {
           </div>
         )}
 
-        {!loading && activeTab === 'impact-analyzer' && <ImpactAnalyzer sprints={sprints} />}
+        {!loading && activeTab === 'impact-analyzer' && <ImpactAnalyzer sprints={sprints} spaceId={space?.id} onActionDone={handleImpactActionDone} />}
         {!loading && activeTab === 'analytics' && <AnalyticsDashboard space={space} />}
         {!loading && activeTab === 'settings' && <Settings />}
       </div>
