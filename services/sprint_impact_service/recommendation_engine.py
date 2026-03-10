@@ -398,12 +398,27 @@ class RecommendationEngine:
         return 0.5
 
     def _build(self, action, reason, target=None, impact=None, plan=None) -> Dict:
+        """
+        Build a recommendation response.
+        
+        The engine is a Decision Support System (not autonomous):
+        - It RECOMMENDS actions but does NOT execute them
+        - Only metadata tags are set (e.g., status flags)
+        - Database modifications happen only when the user accepts via the UI
+        - requires_manual_action indicates if user confirmation is needed
+        """
+        # Determine if user action is required
+        requires_manual_action = action in ("SPLIT", "SWAP", "FORCE SWAP", "OVERLOAD")
+        
         return {
             "recommendation_type": action,
             "reasoning":           reason,
             "target_ticket":       target,
             "impact_analysis":     impact or {},
             "action_plan":         plan or {},
+            "requires_manual_action": requires_manual_action,
+            "suggested_sprint_id": None if action == "DEFER" else "CURRENT",  # Frontend cue for ADD/OVERLOAD
+            "database_operation":  action.lower(),  # Used by frontend to execute when user accepts
         }
 
 
