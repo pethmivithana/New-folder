@@ -410,3 +410,71 @@ async def record_feedback(log_id: str, body: FeedbackRequest):
         raise HTTPException(status_code=404, detail="Log entry not found.")
 
     return {"ok": True, "log_id": log_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXECUTE RECOMMENDATION — Apply action to database (ADD, DEFER, SWAP, SPLIT)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ExecuteRecommendationRequest(BaseModel):
+    """Execute a recommendation: ADD, DEFER, SWAP, SPLIT, FORCE SWAP, or OVERLOAD"""
+    recommendation: dict = Field(..., description="Full recommendation from /analyze")
+    new_ticket: dict = Field(..., description="Task details {title, description, story_points, priority, ...}")
+    sprint_id: str = Field(..., description="Target sprint ID")
+    space_id: str = Field(..., description="Space ID")
+
+
+@router.post("/execute-recommendation")
+async def execute_recommendation(body: ExecuteRecommendationRequest):
+    """
+    Execute the recommended action in the database.
+    
+    Actions:
+    - ADD: Insert into active sprint
+    - DEFER: Insert into backlog
+    - SPLIT: Create two sub-tickets
+    - SWAP: Move lower-priority item to backlog, add new item to sprint
+    - FORCE SWAP: Emergency swap (same as SWAP, for critical issues)
+    - OVERLOAD: Add despite overload (with warning)
+    
+    Returns:
+    {
+        "status": "success",
+        "action": "ADD|DEFER|SWAP|SPLIT|OVERLOAD|FORCE SWAP",
+        "new_task_id": "mongo_id",
+        "new_task_ids": ["id1", "id2"],  # For SPLIT
+        "swapped_task_id": "mongo_id",   # For SWAP/FORCE SWAP
+    }
+    """
+    print(
+        f"[EXECUTE_RECOMMENDATION] Endpoint: action={body.recommendation.get('recommendation_type')}, "
+        f"sprint={body.sprint_id}, new_sp={body.new_ticket.get('story_points')}",
+        file=sys.stderr,
+    )
+    
+    try:
+        db = get_database()
+        
+        # Get risk appetite from space (default: "Standard")
+        space = await db.spaces.find_one({"_id": ObjectId(body.space_id)})
+        risk_appetite = space.get("risk_appetite", "Standard") if space else "Standard"
+        
+        # Create recommendation engine with space's risk appetite
+        engine = RecommendationEngine(risk_appetite=risk_appetite)
+        
+        # Execute the recommendation
+        result = await engine.execute_recommendation(
+            recommendation=body.recommendation,
+            new_ticket=body.new_ticket,
+            sprint_id=body.sprint_id,
+            db=db,
+            sio=None,  # SocketIO integration would go here if available
+        )
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[EXECUTE_RECOMMENDATION] ERROR: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail=str(e))

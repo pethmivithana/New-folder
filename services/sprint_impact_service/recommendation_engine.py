@@ -1,4 +1,7 @@
 from typing import Dict, List, Any, Optional
+import sys
+from datetime import datetime
+from bson import ObjectId
 
 
 PRIORITY_RANK = {"Highest": 5, "Critical": 5, "High": 4, "Medium": 3, "Low": 2, "Lowest": 1}
@@ -405,6 +408,213 @@ class RecommendationEngine:
             "impact_analysis":     impact or {},
             "action_plan":         plan or {},
         }
+
+    async def execute_recommendation(
+        self,
+        recommendation: Dict,
+        new_ticket: Dict,
+        sprint_id: str,
+        db,
+        sio=None,  # Optional SocketIO instance for real-time updates
+    ) -> Dict:
+        """
+        Execute the recommended action in the database.
+        
+        Actions:
+        - ADD: Insert new_ticket into sprint
+        - DEFER: Insert new_ticket into backlog
+        - SPLIT: Create two sub-tickets
+        - SWAP: Move target to backlog, add new_ticket to sprint
+        - FORCE SWAP: Same as SWAP but emergency priority
+        - OVERLOAD: Add despite overload
+        
+        Args:
+            recommendation: Output from generate_recommendation()
+            new_ticket: Full ticket dict {title, description, story_points, priority, ...}
+            sprint_id: Target sprint ID
+            db: Async MongoDB connection
+            sio: SocketIO instance (optional, for real-time UI updates)
+        
+        Returns:
+            {status: "success", action: str, new_task_id: str, swapped_task_id: str or None}
+        """
+        action = recommendation.get("recommendation_type", "ADD")
+        space_id = new_ticket.get("space_id")
+        
+        print(f"[EXECUTE_RECOMMENDATION] Action: {action}, Sprint: {sprint_id}", file=sys.stderr)
+        
+        try:
+            # ── ADD / OVERLOAD: Insert into sprint ────────────────────────────────
+            if action in ("ADD", "OVERLOAD"):
+                new_doc = {
+                    **new_ticket,
+                    "sprint_id": sprint_id,
+                    "status": "To Do",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                result = await db.backlog_items.insert_one(new_doc)
+                new_task_id = str(result.inserted_id)
+                
+                print(f"[EXECUTE] {action}: Inserted task {new_task_id}", file=sys.stderr)
+                
+                # Emit real-time update to frontend
+                if sio:
+                    await sio.emit("task_added", {
+                        "sprint_id": sprint_id,
+                        "task_id": new_task_id,
+                        "action": action,
+                        "task": new_doc,
+                    })
+                
+                return {
+                    "status": "success",
+                    "action": action,
+                    "new_task_id": new_task_id,
+                    "swapped_task_id": None,
+                }
+            
+            # ── DEFER: Insert into backlog (no sprint_id) ──────────────────────────
+            elif action == "DEFER":
+                backlog_doc = {
+                    **new_ticket,
+                    "sprint_id": None,  # Backlog
+                    "status": "To Do",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                result = await db.backlog_items.insert_one(backlog_doc)
+                new_task_id = str(result.inserted_id)
+                
+                print(f"[EXECUTE] DEFER: Inserted to backlog {new_task_id}", file=sys.stderr)
+                
+                if sio:
+                    await sio.emit("task_deferred", {
+                        "task_id": new_task_id,
+                        "space_id": space_id,
+                    })
+                
+                return {
+                    "status": "success",
+                    "action": "DEFER",
+                    "new_task_id": new_task_id,
+                    "swapped_task_id": None,
+                }
+            
+            # ── SPLIT: Create two sub-tickets ────────────────────────────────────
+            elif action == "SPLIT":
+                sp = new_ticket.get("story_points", 8)
+                half_sp = int(sp * 0.5)
+                
+                task1 = {
+                    **new_ticket,
+                    "story_points": half_sp,
+                    "title": f"{new_ticket['title']} (Part 1: Analysis)",
+                    "sprint_id": sprint_id,
+                    "status": "To Do",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                task2 = {
+                    **new_ticket,
+                    "story_points": sp - half_sp,
+                    "title": f"{new_ticket['title']} (Part 2: Implementation)",
+                    "sprint_id": sprint_id,
+                    "status": "To Do",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                
+                result1 = await db.backlog_items.insert_one(task1)
+                result2 = await db.backlog_items.insert_one(task2)
+                
+                task1_id = str(result1.inserted_id)
+                task2_id = str(result2.inserted_id)
+                
+                print(f"[EXECUTE] SPLIT: Created {task1_id}, {task2_id}", file=sys.stderr)
+                
+                if sio:
+                    await sio.emit("task_split", {
+                        "sprint_id": sprint_id,
+                        "task_ids": [task1_id, task2_id],
+                        "original_sp": sp,
+                    })
+                
+                return {
+                    "status": "success",
+                    "action": "SPLIT",
+                    "new_task_ids": [task1_id, task2_id],
+                    "swapped_task_id": None,
+                }
+            
+            # ── SWAP / FORCE SWAP: Atomic operation ──────────────────────────────
+            elif action in ("SWAP", "FORCE SWAP"):
+                target = recommendation.get("target_ticket")
+                if not target or "_id" not in target:
+                    return {
+                        "status": "error",
+                        "reason": "No target ticket for swap",
+                    }
+                
+                target_id = ObjectId(target["_id"]) if isinstance(target["_id"], str) else target["_id"]
+                
+                # Atomic: move target to backlog, add new to sprint
+                session = db.client.start_session()
+                try:
+                    async with session.start_transaction():
+                        # 1. Move target to backlog
+                        await db.backlog_items.update_one(
+                            {"_id": target_id},
+                            {"$set": {
+                                "sprint_id": None,
+                                "updated_at": datetime.utcnow(),
+                            }},
+                            session=session,
+                        )
+                        
+                        # 2. Insert new task
+                        new_doc = {
+                            **new_ticket,
+                            "sprint_id": sprint_id,
+                            "status": "To Do",
+                            "created_at": datetime.utcnow(),
+                            "updated_at": datetime.utcnow(),
+                        }
+                        result = await db.backlog_items.insert_one(new_doc, session=session)
+                        new_task_id = str(result.inserted_id)
+                
+                finally:
+                    await session.end_session()
+                
+                print(f"[EXECUTE] {action}: Swapped {target_id} → {new_task_id}", file=sys.stderr)
+                
+                if sio:
+                    await sio.emit("task_swapped", {
+                        "sprint_id": sprint_id,
+                        "removed_id": str(target_id),
+                        "added_id": new_task_id,
+                        "is_emergency": action == "FORCE SWAP",
+                    })
+                
+                return {
+                    "status": "success",
+                    "action": action,
+                    "new_task_id": new_task_id,
+                    "swapped_task_id": str(target_id),
+                }
+            
+            else:
+                return {
+                    "status": "error",
+                    "reason": f"Unknown action: {action}",
+                }
+        
+        except Exception as e:
+            print(f"[EXECUTE_RECOMMENDATION] ERROR: {e}", file=sys.stderr)
+            return {
+                "status": "error",
+                "reason": str(e),
+            }
 
 
 # Note: RecommendationEngine is instantiated per-request in routes with risk_appetite parameter
