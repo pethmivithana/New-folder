@@ -75,20 +75,51 @@ export default function Dashboard({ space, onBack }) {
   const handleDeleteBacklog = async (id) => {
     if (!confirm('Delete this item?')) return;
     try {
+      // Optimistic update - remove immediately
+      setUnassignedItems(unassignedItems.filter(item => item.id !== id));
+      
       await api.deleteBacklogItem(id);
-      await loadData();
     } catch (error) {
       alert('Failed to delete: ' + error.message);
+      await loadData(); // Reload on error to restore correct state
+    }
+  };
+
+  const handleBacklogSave = async (newItem) => {
+    if (newItem && !newItem.sprint_id) {
+      // Optimistic update - add new item to unassigned list immediately
+      setUnassignedItems([newItem, ...unassignedItems]);
+    } else {
+      // For updates or items assigned to sprints, reload full data
+      await loadData();
+    }
+  };
+
+  const handleImpactActionDone = (actionResult) => {
+    // When an action completes in ImpactAnalyzer (DEFER, SPLIT, etc.)
+    // Add the new item to unassignedItems if it wasn't assigned to a sprint
+    if (actionResult?.data && !actionResult.data.sprint_id) {
+      setUnassignedItems([actionResult.data, ...unassignedItems]);
+    } else {
+      // For items assigned to sprints, reload to ensure accuracy
+      loadData();
     }
   };
 
   const handleAssignToSprint = async (itemId, sprintId) => {
     if (!sprintId) return;
     try {
+      // Optimistic update - remove from unassigned immediately
+      const itemToMove = unassignedItems.find(item => item.id === itemId);
+      if (itemToMove) {
+        setUnassignedItems(unassignedItems.filter(item => item.id !== itemId));
+      }
+      
       await api.updateBacklogItem(itemId, { sprint_id: sprintId });
       await loadData();
     } catch (error) {
       alert('Failed to assign: ' + error.message);
+      await loadData(); // Reload on error to restore correct state
     }
   };
 
@@ -350,7 +381,7 @@ export default function Dashboard({ space, onBack }) {
           </div>
         )}
 
-        {!loading && activeTab === 'impact-analyzer' && <ImpactAnalyzer sprints={sprints} />}
+        {!loading && activeTab === 'impact-analyzer' && <ImpactAnalyzer sprints={sprints} spaceId={space?.id} onActionDone={handleImpactActionDone} />}
         {!loading && activeTab === 'analytics' && <AnalyticsDashboard space={space} />}
         {!loading && activeTab === 'settings' && <Settings />}
       </div>
@@ -359,7 +390,7 @@ export default function Dashboard({ space, onBack }) {
         <SprintModal space={space} sprint={editingSprint} onClose={() => { setShowSprintModal(false); setEditingSprint(null); }} onSave={loadData} />
       )}
       {showBacklogModal && (
-        <BacklogModal space={space} sprints={sprints.filter(s => s.status !== 'Completed')} item={editingBacklog} onClose={() => { setShowBacklogModal(false); setEditingBacklog(null); }} onSave={loadData} />
+        <BacklogModal space={space} sprints={sprints.filter(s => s.status !== 'Completed')} item={editingBacklog} onClose={() => { setShowBacklogModal(false); setEditingBacklog(null); }} onSave={handleBacklogSave} />
       )}
       {showFinishModal && finishingSprint && (
         <FinishSprintModal sprint={finishingSprint} sprints={sprints.filter(s => s.status === 'Planned' && s.id !== finishingSprint.id)} onClose={() => { setShowFinishModal(false); setFinishingSprint(null); }} onFinish={loadData} />

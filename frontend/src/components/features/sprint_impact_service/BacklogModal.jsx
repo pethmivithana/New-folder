@@ -41,10 +41,17 @@ export default function BacklogModal({ space, sprints, item, onClose, onSave }) 
       if (item) {
         await api.updateBacklogItem(item.id, data);
       } else {
-        await api.createBacklogItem(data);
+        const newItem = await api.createBacklogItem(data);
+        // Pass the newly created item to parent for immediate display
+        if (onSave && typeof onSave === 'function') {
+          await onSave(newItem);
+        }
       }
 
-      await onSave();
+      if (item) {
+        // For updates, still need to reload full data
+        await onSave();
+      }
       onClose();
     } catch (error) {
       alert('Failed to save backlog item: ' + error.message);
