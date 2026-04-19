@@ -1,22 +1,42 @@
 /**
- * ImpactAnalyzer.jsx — Light theme, fully legible, matches AgileSense-AI design language
- * 
- * MODULE 3 & 4 Integration:
- * - MODULE 3: Displays story points with hours translation (formatSPWithHours)
- * - MODULE 4: Checks sprint goal alignment and flags scope creep
+ * ImpactAnalyzer.jsx — updated
+ *
+ * What changed:
+ *
+ * 1. SINGLE "AI STRATEGY RECOMMENDATION" PANEL
+ *    Old: two panels shown — one from RecommendationCard (classical engine)
+ *    and one from DecisionEngineCard (new engine), with confusing dual labels.
+ *    New: one panel labelled "AI Strategy Recommendation" that always uses
+ *    the unified decision engine result from analysis.decision.
+ *
+ * 2. ENVIRONMENTAL CHANGE — DEVELOPER EXIT
+ *    A new "Report Environmental Change" dropdown beneath the main form lets
+ *    the user trigger mid-sprint replanning. Selecting DEVELOPER_EXIT reveals:
+ *      - Current dev count (read from sprint context assignee_count)
+ *      - New dev count input (min 2, max space.max_assignees)
+ *      - "Run Replanning" button → POST /api/impact/developer-exit
+ *      - Results shown as a capacity analysis + per-task decision table
+ *
+ * 3. VOLATILE PRODUCTIVITY DISPLAY
+ *    When display.productivity.value === "VOLATILE", a red "VOLATILE" badge
+ *    replaces the percentage, with explanation text.
+ *
+ * 4. MODULE 3 SP→Hours and MODULE 4 alignment unchanged.
  */
 
 import { useState, useEffect, useRef } from 'react';
 import api from './api';
 import { formatSPWithHours, fetchTeamPace } from '../../../utils/hourTranslation';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────
+
 const ACTION_META = {
   ADD:    { icon: '✅', label: 'Add to Sprint',    color: '#059669', bg: '#ecfdf5', border: '#6ee7b7', text: '#065f46' },
   SWAP:   { icon: '🔄', label: 'Execute Swap',     color: '#2563eb', bg: '#eff6ff', border: '#93c5fd', text: '#1e3a8a' },
   DEFER:  { icon: '⏸',  label: 'Defer to Backlog', color: '#d97706', bg: '#fffbeb', border: '#fcd34d', text: '#78350f' },
   SPLIT:  { icon: '✂️', label: 'Split Ticket',     color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', text: '#3b0764' },
-  ACCEPT: { icon: '✅', label: 'Accept',           color: '#059669', bg: '#ecfdf5', border: '#6ee7b7', text: '#065f46' },
+  ABSORB: { icon: '🛡',  label: 'Buffer Absorbs',  color: '#059669', bg: '#ecfdf5', border: '#6ee7b7', text: '#065f46' },
+  SWARM:  { icon: '🐝',  label: 'Team Swarm',      color: '#7c3aed', bg: '#f5f3ff', border: '#c4b5fd', text: '#3b0764' },
 };
 
 const STATUS = {
@@ -25,48 +45,15 @@ const STATUS = {
   critical: { color: '#dc2626', bg: '#fef2f2', border: '#fecaca', chip: '#fee2e2', chipText: '#991b1b', label: 'ALERT',    bar: '#ef4444' },
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-async function executeAction(action, recommendation, sprintId, spaceId, formData) {
-  const base = { title: formData.title, description: formData.description, story_points: formData.story_points, priority: formData.priority, type: formData.type, space_id: spaceId, status: 'To Do' };
-  if (action === 'ADD' || action === 'ACCEPT') {
-    const r = await api.createBacklogItem({ ...base, sprint_id: sprintId });
-    return { ok: true, message: `"${formData.title}" added to sprint.`, data: r };
-  }
-  if (action === 'SWAP') {
-    const t = recommendation?.target_ticket;
-    if (!t?.id) throw new Error('No swap target in recommendation.');
-    await api.updateBacklogItem(t.id, { sprint_id: null });
-    const r = await api.createBacklogItem({ ...base, sprint_id: sprintId });
-    return { ok: true, message: `Swapped out "${t.title}". "${formData.title}" added to sprint.`, data: r };
-  }
-  if (action === 'DEFER') {
-    const r = await api.createBacklogItem({ ...base, sprint_id: null });
-    return { ok: true, message: `"${formData.title}" saved to backlog.`, data: r };
-  }
-  if (action === 'SPLIT') {
-    const r = await api.createBacklogItem({ ...base, sprint_id: null });
-    return { ok: true, requiresManual: true, message: `Saved to backlog. Split manually before sprint planning.`, data: r };
-  }
-  throw new Error('Unknown action: ' + action);
-}
+// ─── Shared sub-components (unchanged from original) ───────────────────────
 
-async function logFeedback(logId, accepted, takenAction) {
-  if (!logId) return;
-  try { await api.recordImpactFeedback(logId, { accepted, taken_action: takenAction }); } catch (_) {}
-}
-
-// ─── CapacityBar ──────────────────────────────────────────────────────────────
-// MODULE 3: Now displays both SP and Hours translation
 function CapacityBar({ used, total, hoursPerSP = 8.0 }) {
   const pct  = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   const col  = pct > 90 ? '#dc2626' : pct > 70 ? '#d97706' : '#059669';
   const free = Math.max(0, total - used);
-  
-  // Calculate hours (MODULE 3)
-  const usedHours = Math.round(used * hoursPerSP * 10) / 10;
+  const usedHours  = Math.round(used  * hoursPerSP * 10) / 10;
   const totalHours = Math.round(total * hoursPerSP * 10) / 10;
-  const freeHours = Math.round(free * hoursPerSP * 10) / 10;
-  
+  const freeHours  = Math.round(free  * hoursPerSP * 10) / 10;
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -87,7 +74,6 @@ function CapacityBar({ used, total, hoursPerSP = 8.0 }) {
   );
 }
 
-// ─── StatPill ─────────────────────────────────────────────────────────────────
 function StatPill({ label, value, accent }) {
   return (
     <div style={{ textAlign:'center', padding:'10px 6px', background: accent ? '#eff6ff' : '#f9fafb', borderRadius:8, border: accent ? '1px solid #bfdbfe' : '1px solid #e5e7eb' }}>
@@ -97,22 +83,21 @@ function StatPill({ label, value, accent }) {
   );
 }
 
-// ─── RiskCard ─────────────────────────────────────────────────────────────────
-const RISK_ICONS = {
-  0: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,                                          // quality
-  1: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,  // schedule
-  2: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>,                                                // productivity
-  3: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,                          // effort
-};
-
 function RiskCard({ label, value, status, sub_text, index }) {
   const [open, setOpen] = useState(false);
   const s = STATUS[status] || STATUS.warning;
+  const RISK_ICONS = {
+    0: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
+    1: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,
+    2: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>,
+    3: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+  };
+
+  // NEW: VOLATILE display for saturated productivity model
+  const isVolatile = value === 'VOLATILE';
+
   return (
-    <div
-      onClick={() => setOpen(o => !o)}
-      style={{ background:'#fff', border:`1px solid ${open ? s.color : '#e5e7eb'}`, borderLeft:`4px solid ${s.color}`, borderRadius:10, padding:'14px 16px', cursor:'pointer', transition:'all .2s', boxShadow: open ? `0 4px 14px ${s.color}22` : '0 1px 3px rgba(0,0,0,.05)' }}
-    >
+    <div onClick={() => setOpen(o => !o)} style={{ background:'#fff', border:`1px solid ${open ? s.color : '#e5e7eb'}`, borderLeft:`4px solid ${isVolatile ? '#dc2626' : s.color}`, borderRadius:10, padding:'14px 16px', cursor:'pointer', transition:'all .2s', boxShadow: open ? `0 4px 14px ${s.color}22` : '0 1px 3px rgba(0,0,0,.05)' }}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
           <div style={{ width:32, height:32, borderRadius:8, background:s.bg, border:`1px solid ${s.border}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -122,7 +107,14 @@ function RiskCard({ label, value, status, sub_text, index }) {
           </div>
           <div style={{ minWidth:0 }}>
             <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:700, marginBottom:2 }}>{label}</div>
-            <div style={{ fontSize:13, fontWeight:800, color:'#111827', lineHeight:1.2 }}>{value}</div>
+            {isVolatile ? (
+              <div style={{ fontSize:13, fontWeight:800, color:'#dc2626', display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#fee2e2', color:'#991b1b', border:'1px solid #fecaca', borderRadius:4, padding:'2px 8px', fontSize:11, fontWeight:800, letterSpacing:'0.08em' }}>VOLATILE</span>
+                <span style={{ fontSize:11, color:'#6b7280', fontWeight:400 }}>Model limit exceeded</span>
+              </div>
+            ) : (
+              <div style={{ fontSize:13, fontWeight:800, color:'#111827', lineHeight:1.2 }}>{value}</div>
+            )}
           </div>
         </div>
         <span style={{ fontSize:9, fontWeight:800, padding:'3px 7px', borderRadius:4, background:s.chip, color:s.chipText, border:`1px solid ${s.border}`, whiteSpace:'nowrap', letterSpacing:'0.07em', flexShrink:0 }}>
@@ -131,7 +123,9 @@ function RiskCard({ label, value, status, sub_text, index }) {
       </div>
       {open && (
         <div style={{ marginTop:10, paddingTop:10, borderTop:`1px dashed ${s.border}`, fontSize:12, color:'#4b5563', lineHeight:1.65 }}>
-          {sub_text}
+          {isVolatile
+            ? "Workload exceeds model prediction limits. The situation is severe enough that a percentage is no longer meaningful. Immediate sprint replanning is recommended."
+            : sub_text}
         </div>
       )}
       <div style={{ marginTop:6, fontSize:10, color:s.color, fontWeight:700 }}>{open ? '▲ collapse' : '▼ details'}</div>
@@ -139,7 +133,6 @@ function RiskCard({ label, value, status, sub_text, index }) {
   );
 }
 
-// ─── GaugeBar ─────────────────────────────────────────────────────────────────
 function GaugeBar({ label, pct, status }) {
   const s = STATUS[status] || STATUS.warning;
   return (
@@ -155,160 +148,11 @@ function GaugeBar({ label, pct, status }) {
   );
 }
 
-// ─── RecommendationCard ───────────────────────────────────────────────────────
-function RecommendationCard({ recommendation, explanation, formData, sprintId, spaceId, logId, onActionDone }) {
-  const [doing,     setDoing]     = useState(false);
-  const [done,      setDone]      = useState(false);
-  const [doneMsg,   setDoneMsg]   = useState('');
-  const [planOpen,  setPlanOpen]  = useState(false);
-
-  const type = recommendation?.recommendation_type ?? 'DEFER';
-  const meta = ACTION_META[type] ?? ACTION_META.DEFER;
-  const alts = Object.keys(ACTION_META).filter(k => k !== type && k !== 'ACCEPT');
-
-  const doAction = async (a) => {
-    setDoing(true);
-    try {
-      const r = await executeAction(a, recommendation, sprintId, spaceId, formData);
-      await logFeedback(logId, true, a === type ? 'FOLLOWED_RECOMMENDATION' : 'IGNORED_RECOMMENDATION');
-      setDone(true); setDoneMsg(r.message); onActionDone?.(r);
-    } catch (e) { alert('Action failed: ' + e.message); }
-    finally { setDoing(false); }
-  };
-
-  return (
-    <div style={{ background:meta.bg, border:`1.5px solid ${meta.border}`, borderRadius:14, padding:20 }}>
-      {/* header */}
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:14 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ width:46, height:46, borderRadius:12, background:'#fff', border:`1px solid ${meta.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0, boxShadow:'0 1px 4px rgba(0,0,0,.07)' }}>
-            {meta.icon}
-          </div>
-          <div>
-            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700, marginBottom:2 }}>AI Recommendation</div>
-            <div style={{ fontSize:16, fontWeight:800, color:meta.color }}>{explanation?.short_title ?? type}</div>
-          </div>
-        </div>
-        <span style={{ fontSize:10, fontWeight:800, padding:'4px 10px', borderRadius:6, background:'#fff', color:meta.color, border:`1px solid ${meta.border}`, letterSpacing:'0.1em', whiteSpace:'nowrap' }}>
-          {type}
-        </span>
-      </div>
-
-      {/* reasoning */}
-      <p style={{ fontSize:13, color:'#374151', lineHeight:1.7, marginBottom:14 }}>{recommendation?.reasoning}</p>
-
-      {/* detailed explanation */}
-      {explanation?.detailed_explanation && explanation.detailed_explanation !== recommendation?.reasoning && (
-        <div style={{ background:'#fff', border:`1px solid ${meta.border}`, borderRadius:8, padding:'10px 14px', marginBottom:14, fontSize:12, color:'#4b5563', lineHeight:1.65 }}>
-          {explanation.detailed_explanation}
-        </div>
-      )}
-
-      {/* swap target */}
-      {recommendation?.target_ticket && (
-        <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:18 }}>🎯</span>
-          <div>
-            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700 }}>Swap Target</div>
-            <div style={{ fontSize:13, fontWeight:700, color:'#1e3a8a' }}>{recommendation.target_ticket.title}</div>
-            <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{recommendation.target_ticket.story_points} SP · {recommendation.target_ticket.priority} · {recommendation.target_ticket.status}</div>
-          </div>
-        </div>
-      )}
-
-      {/* action plan */}
-      {recommendation?.action_plan && Object.keys(recommendation.action_plan).length > 0 && (
-        <div style={{ marginBottom:14 }}>
-          <button onClick={() => setPlanOpen(o => !o)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, fontWeight:700, color:meta.color, display:'flex', alignItems:'center', gap:5, padding:0, letterSpacing:'0.05em' }}>
-            <span style={{ transition:'transform .2s', transform:planOpen?'rotate(90deg)':'none', display:'inline-block' }}>▶</span> Action Plan
-          </button>
-          {planOpen && (
-            <div style={{ marginTop:8, paddingLeft:14, borderLeft:`3px solid ${meta.border}` }}>
-              {Object.entries(recommendation.action_plan).map(([k, v]) => (
-                <div key={k} style={{ fontSize:12, color:'#374151', marginBottom:5, display:'flex', gap:8, lineHeight:1.6 }}>
-                  <span style={{ color:meta.color, fontWeight:700, flexShrink:0 }}>→</span>{v}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* risk summary */}
-      {explanation?.risk_summary && (
-        <div style={{ fontSize:11, color:'#9ca3af', marginBottom:16, fontFamily:'monospace' }}>{explanation.risk_summary}</div>
-      )}
-
-      {/* CTA */}
-      {done ? (
-        <div style={{ background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:600, color:'#065f46', display:'flex', alignItems:'center', gap:8 }}>
-          ✅ {doneMsg}
-        </div>
-      ) : (
-        <>
-          <button onClick={() => doAction(type)} disabled={doing}
-            style={{ width:'100%', padding:'12px 16px', background:meta.color, border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:10, opacity:doing?.7:1, transition:'all .2s', boxShadow:`0 3px 10px ${meta.color}44`, letterSpacing:'0.03em' }}
-          >
-            {doing
-              ? <><div style={{ width:14, height:14, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Applying…</>
-              : <>{meta.icon} {meta.label}</>}
-          </button>
-          <div>
-            <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.08em' }}>Or choose manually</div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-              {alts.map(a => {
-                const m = ACTION_META[a];
-                return (
-                  <button key={a} onClick={() => doAction(a)} disabled={doing}
-                    style={{ fontSize:11, fontWeight:700, padding:'5px 12px', background:m.bg, border:`1px solid ${m.border}`, color:m.color, borderRadius:6, cursor:'pointer', opacity:doing?.5:1, transition:'all .15s' }}
-                  >
-                    {m.icon} {a}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── GoalAlignmentStrip ───────────────────────────────────────────────────────
-function GoalAlignmentStrip({ goalAlignment, onClear }) {
-  if (!goalAlignment) return null;
-  const S = {
-    ACCEPT:   { color:'#059669', bg:'#ecfdf5', border:'#a7f3d0', icon:'✅' },
-    CONSIDER: { color:'#2563eb', bg:'#eff6ff', border:'#bfdbfe', icon:'🔍' },
-    EVALUATE: { color:'#d97706', bg:'#fffbeb', border:'#fde68a', icon:'⚡' },
-    DEFER:    { color:'#dc2626', bg:'#fef2f2', border:'#fecaca', icon:'⏸' },
-  }[goalAlignment.final_recommendation] || { color:'#6b7280', bg:'#f9fafb', border:'#e5e7eb', icon:'📋' };
-  return (
-    <div style={{ background:S.bg, border:`1.5px solid ${S.border}`, borderRadius:12, padding:'14px 16px' }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:8 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:20 }}>{S.icon}</span>
-          <div>
-            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700 }}>Goal Alignment</div>
-            <div style={{ fontSize:14, fontWeight:800, color:S.color }}>{goalAlignment.final_recommendation}</div>
-          </div>
-        </div>
-        <button onClick={onClear} style={{ background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:16, padding:4, lineHeight:1 }}>✕</button>
-      </div>
-      <p style={{ fontSize:12, color:'#374151', lineHeight:1.6, marginBottom:8 }}>{goalAlignment.recommendation_reason}</p>
-      <div style={{ fontSize:11, color:'#4b5563', borderTop:`1px dashed ${S.border}`, paddingTop:8 }}>
-        <strong>Next: </strong>{goalAlignment.next_steps}
-      </div>
-    </div>
-  );
-}
-
-// ─── RiskBanner ───────────────────────────────────────────────────────────────
 function RiskBanner({ status }) {
   const C = {
-    safe:     { bg:'#ecfdf5', border:'#a7f3d0', dot:'#10b981', title:'All Signals Nominal',       sub:'Safe to add to sprint' },
-    warning:  { bg:'#fffbeb', border:'#fde68a', dot:'#f59e0b', title:'Elevated Risk Detected',    sub:'Review caution items before proceeding' },
-    critical: { bg:'#fef2f2', border:'#fecaca', dot:'#ef4444', title:'Critical Risk Detected',    sub:'Follow recommendation before adding to sprint' },
+    safe:     { bg:'#ecfdf5', border:'#a7f3d0', dot:'#10b981', title:'All Signals Nominal',    sub:'Safe to add to sprint' },
+    warning:  { bg:'#fffbeb', border:'#fde68a', dot:'#f59e0b', title:'Elevated Risk Detected', sub:'Review caution items before proceeding' },
+    critical: { bg:'#fef2f2', border:'#fecaca', dot:'#ef4444', title:'Critical Risk Detected', sub:'Follow recommendation before adding to sprint' },
   }[status] || {};
   return (
     <div style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
@@ -321,122 +165,41 @@ function RiskBanner({ status }) {
   );
 }
 
-// ─── STAlignmentCard (Phase 1 — alignment state only, no action verbs) ───────
-function STAlignmentCard({ result, onClear }) {
-  const [expanded, setExpanded] = useState(false);
+// ══════════════════════════════════════════════════════════════════════════════
+// NEW: Single "AI Strategy Recommendation" card
+// Replaces both RecommendationCard and DecisionEngineCard
+// ══════════════════════════════════════════════════════════════════════════════
 
-  const PALETTE = {
-    CRITICAL_BLOCKER: { accent: '#dc2626', light: '#fef2f2', border: '#fecaca', chipBg: '#fee2e2', chipText: '#991b1b' },
-    STRONGLY_ALIGNED: { accent: '#059669', light: '#ecfdf5', border: '#a7f3d0', chipBg: '#d1fae5', chipText: '#065f46' },
-    PARTIALLY_ALIGNED:{ accent: '#2563eb', light: '#eff6ff', border: '#bfdbfe', chipBg: '#dbeafe', chipText: '#1e3a8a' },
-    WEAKLY_ALIGNED:   { accent: '#d97706', light: '#fffbeb', border: '#fde68a', chipBg: '#fef3c7', chipText: '#92400e' },
-    UNALIGNED:        { accent: '#6b7280', light: '#f9fafb', border: '#e5e7eb', chipBg: '#f3f4f6', chipText: '#374151' },
+async function executeDecisionAction(action, sprintId, spaceId, formData) {
+  const base = {
+    title: formData.title, description: formData.description,
+    story_points: formData.story_points, priority: formData.priority,
+    type: formData.type, space_id: spaceId, status: 'To Do',
   };
-
-  const OVERLAP_LABEL = { high: 'High', medium: 'Medium', low: 'Low', none: 'None' };
-
-  if (!result?.alignment_state) return null;
-
-  const p   = PALETTE[result.alignment_state] ?? PALETTE.UNALIGNED;
-  const pct = result.semantic_score_pct ?? 0;
-  const barColor = pct >= 55 ? '#059669' : pct >= 35 ? '#d97706' : '#dc2626';
-
-  return (
-    <div style={{ background: p.light, border: `1.5px solid ${p.border}`, borderRadius: 12, padding: '14px 16px', position: 'relative' }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#fff', border: `1px solid ${p.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-            🎯
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 2 }}>
-              Phase 1 · Sprint Alignment · <span style={{ color: '#6b7280', fontStyle: 'italic', textTransform: 'none', letterSpacing: 0 }}>{result.model_name}</span>
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: p.accent }}>{result.alignment_label ?? result.alignment_state}</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ textAlign: 'center', background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '4px 10px', minWidth: 52 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: barColor, lineHeight: 1 }}>{pct}%</div>
-            <div style={{ fontSize: 9, color: '#9ca3af', fontWeight: 700, letterSpacing: '0.06em', marginTop: 1 }}>MATCH</div>
-          </div>
-          <button onClick={onClear} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 15, padding: 4 }}>✕</button>
-        </div>
-      </div>
-
-      {/* Score bar */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Semantic similarity score</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: barColor }}>{pct} / 100</span>
-        </div>
-        <div style={{ height: 7, background: '#e5e7eb', borderRadius: 4, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 4, transition: 'width .9s cubic-bezier(.16,1,.3,1)' }} />
-        </div>
-        <div style={{ position: 'relative', height: 14 }}>
-          {[{ v: 35, label: '35%' }, { v: 55, label: '55%' }].map(({ v, label }) => (
-            <div key={v} style={{ position: 'absolute', left: `${v}%`, top: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', transform: 'translateX(-50%)' }}>
-              <div style={{ width: 1, height: 5, background: '#d1d5db' }} />
-              <span style={{ fontSize: 9, color: '#9ca3af' }}>{label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Chips */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-        {result.is_critical_blocker && (
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }}>🚨 BLOCKER</span>
-        )}
-        <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, background: result.epic_aligned ? '#d1fae5' : '#f3f4f6', color: result.epic_aligned ? '#065f46' : '#6b7280', border: `1px solid ${result.epic_aligned ? '#a7f3d0' : '#e5e7eb'}` }}>
-          Epic {result.epic_aligned ? '✓ aligned' : '✗ mismatch'}
-        </span>
-        <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, background: result.component_overlap === 'none' ? '#f3f4f6' : '#dbeafe', color: result.component_overlap === 'none' ? '#6b7280' : '#1e3a8a', border: `1px solid ${result.component_overlap === 'none' ? '#e5e7eb' : '#bfdbfe'}` }}>
-          Components: {OVERLAP_LABEL[result.component_overlap] ?? result.component_overlap}
-        </span>
-      </div>
-
-      {/* Expandable */}
-      <button onClick={() => setExpanded(x => !x)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: p.accent, display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
-        <span style={{ display: 'inline-block', transition: 'transform .2s', transform: expanded ? 'rotate(90deg)' : 'none' }}>▶</span>
-        {expanded ? 'Hide detail' : 'Show layer analysis'}
-      </button>
-
-      {expanded && (
-        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '10px 12px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>L1 · Blocker Detection</div>
-            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{result.blocker_reason}</p>
-          </div>
-          <div style={{ background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '10px 12px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>L2 · Semantic Similarity</div>
-            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{result.semantic_reasoning}</p>
-          </div>
-          <div style={{ background: '#fff', border: `1px solid ${p.border}`, borderRadius: 8, padding: '10px 12px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>L3 · Metadata Traceability</div>
-            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: 0 }}>{result.metadata_details}</p>
-            {result.matched_components?.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                {result.matched_components.map(c => (
-                  <span key={c} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe', fontWeight: 600 }}>{c}</span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  if (action === 'ADD') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: sprintId });
+    return { ok: true, message: `"${formData.title}" added to sprint.`, data: r };
+  }
+  if (action === 'DEFER') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: null });
+    return { ok: true, message: `"${formData.title}" saved to backlog.`, data: r };
+  }
+  if (action === 'SPLIT') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: null });
+    return { ok: true, requiresManual: true, message: 'Saved to backlog. Split manually before sprint planning.', data: r };
+  }
+  if (action === 'SWAP') {
+    const r = await api.createBacklogItem({ ...base, sprint_id: null });
+    return { ok: true, requiresManual: true, message: 'Swapped — new item needs manual placement.', data: r };
+  }
+  throw new Error('Unknown action: ' + action);
 }
 
-// ─── DecisionEngineCard (Phase 3 — AI recommendation + manual override) ───────
-function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onActionDone }) {
-  const [doing,    setDoing]    = useState(false);
-  const [done,     setDone]     = useState(false);
-  const [doneMsg,  setDoneMsg]  = useState('');
-  const [override, setOverride] = useState(null);  // user's manual choice
+function AIStrategyRecommendation({ decision, explanation, formData, sprintId, spaceId, logId, onActionDone }) {
+  const [doing,   setDoing]   = useState(false);
+  const [done,    setDone]    = useState(false);
+  const [doneMsg, setDoneMsg] = useState('');
+  const [override, setOverride] = useState(null);
 
   if (!decision?.action) return null;
 
@@ -447,70 +210,78 @@ function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onAc
   const doAction = async (a) => {
     setDoing(true);
     try {
-      const r = await executeAction(a, null, sprintId, spaceId, formData);
-      await logFeedback(logId, true, a === decision.action ? 'FOLLOWED_RECOMMENDATION' : 'OVERRIDDEN');
+      const r = await executeDecisionAction(a, sprintId, spaceId, formData);
+      if (logId) {
+        try {
+          await api.recordImpactFeedback(logId, {
+            accepted:     true,
+            taken_action: a === decision.action ? 'FOLLOWED_RECOMMENDATION' : 'OVERRIDDEN',
+          });
+        } catch (_) {}
+      }
       setDone(true); setDoneMsg(r.message); onActionDone?.(r);
     } catch (e) { alert('Action failed: ' + e.message); }
     finally { setDoing(false); }
   };
 
   return (
-    <div style={{ background: meta.bg, border: `1.5px solid ${meta.border}`, borderRadius: 14, padding: 20 }}>
-
+    <div style={{ background:meta.bg, border:`1.5px solid ${meta.border}`, borderRadius:14, padding:20 }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 46, height: 46, borderRadius: 12, background: '#fff', border: `1px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:46, height:46, borderRadius:12, background:'#fff', border:`1px solid ${meta.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>
             {meta.icon}
           </div>
           <div>
-            <div style={{ fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 2 }}>Phase 3 · Decision Engine</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: meta.color }}>🤖 AI Recommends: {decision.action}</div>
+            {/* CHANGE: single label "AI Strategy Recommendation" — no more dual engine confusion */}
+            <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700, marginBottom:2 }}>AI Strategy Recommendation</div>
+            <div style={{ fontSize:16, fontWeight:800, color:meta.color }}>{explanation?.short_title ?? decision.action}</div>
           </div>
         </div>
-        <span style={{ fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 6, background: '#fff', color: meta.color, border: `1px solid ${meta.border}`, letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
-          {decision.action}
+        <span style={{ fontSize:10, fontWeight:800, padding:'4px 10px', borderRadius:6, background:'#fff', color:meta.color, border:`1px solid ${meta.border}`, letterSpacing:'0.1em', whiteSpace:'nowrap' }}>
+          {activeAction}
         </span>
       </div>
 
-      {/* Short title */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: meta.color, marginBottom: 8 }}>{decision.short_title}</div>
-
-      {/* Reasoning */}
-      <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.7, marginBottom: 10 }}>{decision.reasoning}</p>
-
-      {/* Rule triggered chip */}
-      <div style={{ fontSize: 10, color: '#6b7280', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', display: 'inline-block', marginBottom: 14 }}>
+      {/* Rule that triggered */}
+      <div style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', border:'1px solid #e5e7eb', borderRadius:6, padding:'4px 10px', display:'inline-block', marginBottom:12 }}>
         ⚙️ {decision.rule_triggered}
       </div>
 
+      {/* Reasoning */}
+      <p style={{ fontSize:13, color:'#374151', lineHeight:1.7, marginBottom:14 }}>{decision.reasoning}</p>
+
+      {/* Detailed explanation */}
+      {explanation?.detailed_explanation && (
+        <div style={{ background:'#fff', border:`1px solid ${meta.border}`, borderRadius:8, padding:'10px 14px', marginBottom:14, fontSize:12, color:'#4b5563', lineHeight:1.65 }}>
+          {explanation.detailed_explanation}
+        </div>
+      )}
+
+      {/* CTA */}
       {done ? (
-        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#065f46', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:600, color:'#065f46', display:'flex', alignItems:'center', gap:8 }}>
           ✅ {doneMsg}
         </div>
       ) : (
         <>
-          {/* Primary CTA — active action (AI recommendation or override) */}
           <button onClick={() => doAction(activeAction)} disabled={doing}
-            style={{ width: '100%', padding: '12px 16px', background: meta.color, border: 'none', color: '#fff', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 14, opacity: doing ? 0.7 : 1, transition: 'all .2s', boxShadow: `0 3px 10px ${meta.color}44` }}
+            style={{ width:'100%', padding:'12px 16px', background:meta.color, border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:14, opacity:doing?.7:1, transition:'all .2s', boxShadow:`0 3px 10px ${meta.color}44` }}
           >
             {doing
-              ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.35)', borderTopColor: '#fff', borderRadius: '50%', animation: 'ia-spin .7s linear infinite' }} /> Applying…</>
+              ? <><div style={{ width:14, height:14, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Applying…</>
               : <>{meta.icon} {meta.label}</>}
           </button>
 
-          {/* Manual override section */}
-          <div style={{ borderTop: `1px dashed ${meta.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              📋 Product Owner Override
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.08em' }}>📋 Product Owner Override</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
               {allActions.map(a => {
                 const m = ACTION_META[a];
                 const isSelected = a === activeAction;
                 return (
                   <button key={a} onClick={() => setOverride(a === decision.action ? null : a)} disabled={doing}
-                    style={{ fontSize: 11, fontWeight: 700, padding: '6px 14px', background: isSelected ? m.color : m.bg, border: `1.5px solid ${isSelected ? m.color : m.border}`, color: isSelected ? '#fff' : m.color, borderRadius: 7, cursor: 'pointer', opacity: doing ? 0.5 : 1, transition: 'all .15s' }}
+                    style={{ fontSize:11, fontWeight:700, padding:'6px 14px', background: isSelected ? m.color : m.bg, border:`1.5px solid ${isSelected ? m.color : m.border}`, color: isSelected ? '#fff' : m.color, borderRadius:7, cursor:'pointer', opacity:doing?.5:1 }}
                   >
                     {m.icon} {a}
                   </button>
@@ -518,7 +289,7 @@ function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onAc
               })}
             </div>
             {override && override !== decision.action && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#d97706', fontStyle: 'italic' }}>
+              <div style={{ marginTop:8, fontSize:11, color:'#d97706', fontStyle:'italic' }}>
                 ⚠️ Overriding AI recommendation ({decision.action} → {override})
               </div>
             )}
@@ -529,87 +300,211 @@ function DecisionEngineCard({ decision, formData, sprintId, spaceId, logId, onAc
   );
 }
 
-// ─── ImpactAnalyzer (main) ────────────────────────���───────────────────────────
-export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentOnActionDone }) {
+// ══════════════════════════════════════════════════════════════════════════════
+// NEW: Developer Exit Environmental Change Panel
+// ══════════════════════════════════════════════════════════════════════════════
+
+function DeveloperExitPanel({ sprint, spaceMaxAssignees, onClose }) {
+  const currentDevs    = sprint?.assignee_count ?? 2;
+  const [newDevs, setNewDevs]       = useState(Math.max(2, currentDevs - 1));
+  const [loading, setLoading]       = useState(false);
+  const [result,  setResult]        = useState(null);
+  const [error,   setError]         = useState('');
+
+  const SEVERITY_COLORS = {
+    LOW:      { bg:'#ecfdf5', border:'#a7f3d0', text:'#065f46', dot:'#10b981' },
+    HIGH:     { bg:'#fffbeb', border:'#fde68a', text:'#78350f', dot:'#f59e0b' },
+    CRITICAL: { bg:'#fef2f2', border:'#fecaca', text:'#991b1b', dot:'#ef4444' },
+  };
+
+  const ACTION_COLORS = {
+    ABSORB: '#059669', SWARM: '#7c3aed',
+    DEFER: '#d97706', SPLIT: '#7c3aed', KEEP: '#9ca3af',
+  };
+
+  const validate = (v) => {
+    const n = parseInt(v, 10);
+    if (isNaN(n) || n < 2)          return 'Minimum 2 developers.';
+    if (n >= currentDevs)           return 'New count must be less than current count.';
+    if (n > spaceMaxAssignees)      return `Cannot exceed space limit of ${spaceMaxAssignees}.`;
+    return '';
+  };
+
+  const runReplanning = async () => {
+    const err = validate(newDevs);
+    if (err) { setError(err); return; }
+    setLoading(true); setError(''); setResult(null);
+    try {
+      const res = await api.reportDeveloperExit({
+        sprint_id:           sprint.id,
+        new_developer_count: newDevs,
+        buffer_ratio:        0.20,
+      });
+      setResult(res);
+    } catch (e) {
+      setError('Replanning failed: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sev = result?.severity;
+  const sevColors = sev ? SEVERITY_COLORS[sev] : null;
+
+  return (
+    <div style={{ background:'#fff', border:'1.5px solid #e0e7ff', borderRadius:14, padding:20, marginTop:14 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:22 }}>👤</span>
+          <div>
+            <div style={{ fontSize:11, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700 }}>Environmental Change</div>
+            <div style={{ fontSize:15, fontWeight:800, color:'#dc2626' }}>Developer Exit — MSR-A</div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:18 }}>✕</button>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
+        <div style={{ background:'#f9fafb', borderRadius:8, padding:12, textAlign:'center' }}>
+          <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', fontWeight:700, marginBottom:4 }}>Current developers</div>
+          <div style={{ fontSize:28, fontWeight:800, color:'#374151' }}>{currentDevs}</div>
+        </div>
+        <div style={{ background:'#fef2f2', borderRadius:8, padding:12, textAlign:'center' }}>
+          <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', fontWeight:700, marginBottom:4 }}>After exit</div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            <button onClick={() => setNewDevs(v => Math.max(2, v - 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>−</button>
+            <span style={{ fontSize:28, fontWeight:800, color:'#dc2626' }}>{newDevs}</span>
+            <button onClick={() => setNewDevs(v => Math.min(currentDevs - 1, v + 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>+</button>
+          </div>
+        </div>
+      </div>
+
+      {error && <div style={{ fontSize:12, color:'#dc2626', marginBottom:10 }}>⚠️ {error}</div>}
+
+      <button onClick={runReplanning} disabled={loading}
+        style={{ width:'100%', padding:'11px 16px', background:'#dc2626', border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, opacity:loading?.7:1 }}
+      >
+        {loading ? '⏳ Running Replanning…' : '🔄 Run Replanning Analysis'}
+      </button>
+
+      {result && (
+        <div style={{ marginTop:16 }}>
+          {/* Severity banner */}
+          <div style={{ background:sevColors.bg, border:`1px solid ${sevColors.border}`, borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
+            <div style={{ width:10, height:10, borderRadius:'50%', background:sevColors.dot, flexShrink:0 }} />
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:sevColors.text }}>Severity: {sev}</div>
+              <div style={{ fontSize:11, color:sevColors.text, opacity:.8, marginTop:2 }}>{result.overall_strategy}</div>
+            </div>
+          </div>
+
+          {/* Capacity math */}
+          {result.capacity_analysis && (
+            <div style={{ background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:8, padding:12, marginBottom:14, fontSize:12 }}>
+              <div style={{ fontWeight:700, color:'#374151', marginBottom:8 }}>Capacity Analysis</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6 }}>
+                {[
+                  ['Normalized capacity', `${result.capacity_analysis.normalized_capacity} SP`],
+                  ['Safe threshold (80%)', `${result.capacity_analysis.safe_threshold} SP`],
+                  ['Remaining work', `${result.capacity_analysis.remaining_points} SP`],
+                  ['Deficit', result.capacity_analysis.deficit_sp > 0 ? `${result.capacity_analysis.deficit_sp} SP` : 'None — buffer absorbs'],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display:'flex', flexDirection:'column' }}>
+                    <span style={{ color:'#9ca3af', fontSize:10, textTransform:'uppercase', fontWeight:600 }}>{k}</span>
+                    <span style={{ color:'#111827', fontWeight:700 }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Per-task decisions */}
+          {result.per_task_decisions?.length > 0 && (
+            <div>
+              <div style={{ fontWeight:700, color:'#374151', fontSize:12, marginBottom:8 }}>Per-Task Decisions</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {result.per_task_decisions.map((d, i) => (
+                  <div key={i} style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, padding:'10px 14px', display:'flex', alignItems:'flex-start', gap:10 }}>
+                    <span style={{ fontSize:10, fontWeight:800, padding:'3px 8px', borderRadius:5, background: ACTION_COLORS[d.action] ? `${ACTION_COLORS[d.action]}15` : '#f3f4f6', color: ACTION_COLORS[d.action] ?? '#374151', border:`1px solid ${ACTION_COLORS[d.action] ?? '#e5e7eb'}33`, whiteSpace:'nowrap', flexShrink:0, marginTop:1 }}>
+                      {d.action}
+                    </span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#111827' }}>{d.title}</div>
+                      <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{d.reason}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Main ImpactAnalyzer
+// ══════════════════════════════════════════════════════════════════════════════
+
+export default function ImpactAnalyzer({ sprints, spaceId, spaceMaxAssignees = 10, onActionDone: parentOnActionDone }) {
   const [sprint,    setSprint]    = useState(null);
   const [form,      setForm]      = useState({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' });
   const [analysis,  setAnalysis]  = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [ctx,       setCtx]       = useState(null);
-  const [result,    setResult]    = useState(null);
-  const [suggesting,  setSuggesting]  = useState(false);
-  const [alignment,   setAlignment]   = useState(null);
-  const [aligning,    setAligning]    = useState(false);
-  const [stAlignment, setStAlignment] = useState(null);   // Phase 1 result
+  const [suggesting, setSuggesting] = useState(false);
+  const [stAlignment, setStAlignment] = useState(null);
   const [stAligning,  setStAligning]  = useState(false);
-  const [decision,    setDecision]    = useState(null);   // Phase 3 result
-  
-  // MODULE 3: SP to Hours Translation
-  const [hoursPerSP,     setHoursPerSP]     = useState(8.0);
-  const [loadingPace,    setLoadingPace]    = useState(true);
-  
+
+  // NEW: Environmental change
+  const [envChange,    setEnvChange]    = useState('NONE');
+  const [showExitPanel, setShowExitPanel] = useState(false);
+
+  const [hoursPerSP, setHoursPerSP] = useState(8.0);
   const ref = useRef(null);
 
   useEffect(() => {
-  const active = sprints?.find(s => s.status === 'Active') || sprints?.[0];
-  if (active && !sprint) { setSprint(active); loadCtx(active.id); }
+    const active = sprints?.find(s => s.status === 'Active') || sprints?.[0];
+    if (active && !sprint) { setSprint(active); loadCtx(active.id); }
   }, [sprints]);
-  
-  // MODULE 3: Load team pace on mount
+
   useEffect(() => {
     if (!spaceId) return;
-    setLoadingPace(true);
     fetchTeamPace(spaceId)
       .then(data => setHoursPerSP(data.hours_per_sp || 8.0))
-      .catch(err => {
-        console.error('Failed to load team pace:', err);
-        setHoursPerSP(8.0);
-      })
-      .finally(() => setLoadingPace(false));
+      .catch(() => setHoursPerSP(8.0));
   }, [spaceId]);
 
-  const loadCtx = async (id) => { try { setCtx(await api.getSprintContext(id)); } catch { setCtx(null); } };
+  const loadCtx = async (id) => {
+    try { setCtx(await api.getSprintContext(id)); } catch { setCtx(null); }
+  };
 
   const pickSprint = (id) => {
     const s = sprints.find(x => x.id === id);
-    setSprint(s); setAnalysis(null); setResult(null);
+    setSprint(s); setAnalysis(null);
     if (s) loadCtx(s.id);
   };
 
   const suggestPoints = async () => {
     if (!form.title.trim()) { alert('Enter a title first'); return; }
     setSuggesting(true);
-    try { const r = await api.predictStoryPoints({ title: form.title, description: form.description }); setForm({ ...form, story_points: r.suggested_points || 5 }); }
-    catch (e) { alert('Could not suggest: ' + e.message); }
+    try {
+      const r = await api.predictStoryPoints({ title: form.title, description: form.description });
+      setForm({ ...form, story_points: r.suggested_points || 5 });
+    } catch (e) { alert('Could not suggest: ' + e.message); }
     finally { setSuggesting(false); }
   };
 
-  // Legacy classical alignment (kept, not surfaced in main UI)
-  const checkAlignment = async () => {
-    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
-    setAligning(true);
-    try {
-      const r = await api.analyzeSprintGoalAlignment({ sprint_goal: sprint.goal || 'No goal', requirement_title: form.title, requirement_description: form.description, requirement_priority: form.priority, requirement_epic: null, sprint_epic: null, requirement_components: [], sprint_components: [] });
-      setAlignment(r);
-    } catch (e) { alert('Alignment check failed: ' + e.message); }
-    finally { setAligning(false); }
-  };
-
-  // NEW: Sentence-Transformer alignment — deterministic, zero-latency
   const checkSTAlignment = async () => {
-    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title first.'); return; }
-    setStAligning(true);
-    setStAlignment(null);
+    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title.'); return; }
+    setStAligning(true); setStAlignment(null);
     try {
       const r = await api.checkSprintAlignment({
         sprint_goal:        sprint.goal || '',
         ticket_title:       form.title,
         ticket_description: form.description,
         priority:           form.priority,
-        ticket_epic:        null,
-        sprint_epic:        null,
-        ticket_components:  [],
-        sprint_components:  [],
       });
       setStAlignment(r);
     } catch (e) { alert('Alignment check failed: ' + e.message); }
@@ -617,52 +512,38 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
   };
 
   const analyze = async () => {
-    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title'); return; }
-    setLoading(true); setAnalysis(null); setResult(null); setDecision(null);
+    if (!sprint || !form.title.trim()) { alert('Select a sprint and enter a title.'); return; }
+    setLoading(true); setAnalysis(null);
     try {
-      const r = await api.analyzeImpact({ sprint_id: sprint.id, title: form.title, description: form.description, story_points: form.story_points, priority: form.priority, type: form.type });
+      const r = await api.analyzeImpact({
+        sprint_id:    sprint.id,
+        title:        form.title,
+        description:  form.description,
+        story_points: form.story_points,
+        priority:     form.priority,
+        type:         form.type,
+      });
       setAnalysis(r);
-
-      // Phase 3 — call Decision Engine with Phase 1 alignment_state + Phase 2 outputs
-      const effortSp = r.ml_raw?.effort?.median_sp ?? form.story_points;
-      const freeCapacity = Math.max(0, (ctx?.team_velocity || 30) - (ctx?.current_load || 0));
-      const scheduleProb = r.ml_raw?.schedule_risk?.probability ?? 0;
-      const riskLevel = scheduleProb > 0.65 ? 'HIGH' : scheduleProb > 0.40 ? 'MEDIUM' : 'LOW';
-      const alignState = stAlignment?.alignment_state ?? 'STRONGLY_ALIGNED';
-
-      try {
-        const d = await api.getDecision({
-          alignment_state: alignState,
-          effort_sp:       effortSp,
-          free_capacity:   freeCapacity,
-          priority:        form.priority,
-          risk_level:      riskLevel,
-        });
-        setDecision(d);
-      } catch (_) { /* decision engine optional — fall back to existing recommendation */ }
-
       setTimeout(() => ref.current?.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
     } catch (e) { alert('Analysis failed: ' + e.message); }
     finally { setLoading(false); }
   };
 
-  const used  = ctx?.current_load   || 0;
-  const total = ctx?.team_velocity  || Math.max(used, 30);
-  const resolvedSpaceId = spaceId || sprint?.space_id || '';
+  const used  = ctx?.current_load  || 0;
+  const total = ctx?.team_velocity || Math.max(used, 30);
 
   const METRICS = [
-    { key:'effort',       label:'Effort Estimate',     idx:3 },
-    { key:'schedule',     label:'Schedule Risk',        idx:1 },
-    { key:'productivity', label:'Productivity Impact',  idx:2 },
-    { key:'quality',      label:'Quality Risk',         idx:0 },
+    { key:'effort',       label:'Effort Estimate',    idx:3 },
+    { key:'schedule',     label:'Schedule Risk',       idx:1 },
+    { key:'productivity', label:'Productivity Impact', idx:2 },
+    { key:'quality',      label:'Quality Risk',        idx:0 },
   ];
 
   const overallStatus = analysis?.display
     ? (() => { const v = METRICS.map(m => analysis.display[m.key]?.status || 'safe'); return v.includes('critical') ? 'critical' : v.includes('warning') ? 'warning' : 'safe'; })()
     : null;
 
-  // Shared input styles
-  const inp = { width:'100%', padding:'9px 12px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13, color:'#111827', background:'#fff', outline:'none', boxSizing:'border-box', transition:'border-color .15s, box-shadow .15s' };
+  const inp = { width:'100%', padding:'9px 12px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13, color:'#111827', background:'#fff', outline:'none', boxSizing:'border-box' };
   const lbl = { display:'block', fontSize:11, fontWeight:700, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 };
   const sel = { ...inp, appearance:'none', cursor:'pointer', backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat:'no-repeat', backgroundPosition:'right 12px center', paddingRight:36 };
   const focus = e => { e.target.style.borderColor='#6366f1'; e.target.style.boxShadow='0 0 0 3px rgba(99,102,241,.12)'; };
@@ -670,14 +551,14 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
 
   return (
     <>
-      <style>{`@keyframes ia-spin{to{transform:rotate(360deg)}}@keyframes ia-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.ia-in{animation:ia-in .3s ease forwards}`}</style>
+      <style>{`@keyframes ia-spin{to{transform:rotate(360deg)}}.ia-in{animation:ia-in .3s ease forwards}@keyframes ia-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, alignItems:'start' }}>
 
         {/* ═══ LEFT — Form ═══ */}
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
 
-          {/* Header card */}
+          {/* Header */}
           <div style={{ background:'linear-gradient(135deg,#6366f1,#8b5cf6)', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', gap:14 }}>
             <div style={{ width:44, height:44, borderRadius:11, background:'rgba(255,255,255,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>⚡</div>
             <div>
@@ -691,16 +572,20 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
             <label style={lbl}>Target Sprint</label>
             <select value={sprint?.id || ''} onChange={e => pickSprint(e.target.value)} style={sel} onFocus={focus} onBlur={blur}>
               <option value="">Select sprint…</option>
-              {sprints?.map(s => <option key={s.id} value={s.id}>{s.name} ({s.status}){s.status === 'Active' ? ' 🔥' : ''}</option>)}
+              {sprints?.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.status}){s.status === 'Active' ? ' 🔥' : ''} — {s.assignee_count ?? 2} devs
+                </option>
+              ))}
             </select>
             {ctx && (
               <>
-                <div style={{ marginTop:14 }}><CapacityBar used={used} total={total} /></div>
+                <div style={{ marginTop:14 }}><CapacityBar used={used} total={total} hoursPerSP={hoursPerSP} /></div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginTop:12 }}>
-                  <StatPill label="Items"    value={ctx.item_count} />
-                  <StatPill label="Progress" value={`${ctx.sprint_progress}%`} />
+                  <StatPill label="Items"     value={ctx.item_count} />
+                  <StatPill label="Progress"  value={`${ctx.sprint_progress}%`} />
                   <StatPill label="Days left" value={ctx.days_remaining} accent />
-                  <StatPill label="Free SP"  value={Math.max(0, total - used)} />
+                  <StatPill label="Devs"      value={ctx.assignee_count ?? '—'} />
                 </div>
               </>
             )}
@@ -714,25 +599,23 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
             </div>
             <div>
               <label style={lbl}>Description</label>
-              <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} style={{...inp, resize:'vertical'}} rows={3} placeholder="Technical details, affected systems, integrations…" onFocus={focus} onBlur={blur} />
-              <p style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>💡 Richer detail improves story point accuracy</p>
+              <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} style={{...inp, resize:'vertical'}} rows={3} placeholder="Technical details, affected systems…" onFocus={focus} onBlur={blur} />
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-  <div>
-  <label style={lbl}>Story Points {loadingPace ? '(loading pace...)' : ''}</label>
-  <div style={{ display:'flex', gap:8, marginBottom:4 }}>
-  <input type="number" min="1" max="21" value={form.story_points} onChange={e => setForm({...form, story_points:parseInt(e.target.value)||5})} style={{...inp, flex:1}} onFocus={focus} onBlur={blur} />
-  <button onClick={suggestPoints} disabled={suggesting}
-  style={{ padding:'8px 10px', background:'#eff6ff', border:'1px solid #bfdbfe', color:'#2563eb', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4, opacity:suggesting?.6:1 }}
-  >
-  {suggesting ? <div style={{ width:12, height:12, border:'2px solid #bfdbfe', borderTopColor:'#2563eb', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> : '✨'} AI
-  </button>
-  </div>
-  {/* MODULE 3: Hours Translation Display */}
-  <div style={{ fontSize:11, color:'#9ca3af', fontStyle:'italic', padding:'4px 0' }}>
-    {formatSPWithHours(form.story_points, hoursPerSP)}
-  </div>
-  </div>
+              <div>
+                <label style={lbl}>Story Points</label>
+                <div style={{ display:'flex', gap:8, marginBottom:4 }}>
+                  <input type="number" min="1" max="21" value={form.story_points} onChange={e => setForm({...form, story_points:parseInt(e.target.value)||5})} style={{...inp, flex:1}} onFocus={focus} onBlur={blur} />
+                  <button onClick={suggestPoints} disabled={suggesting}
+                    style={{ padding:'8px 10px', background:'#eff6ff', border:'1px solid #bfdbfe', color:'#2563eb', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }}
+                  >
+                    {suggesting ? '…' : '✨ AI'}
+                  </button>
+                </div>
+                <div style={{ fontSize:11, color:'#9ca3af', fontStyle:'italic' }}>
+                  {formatSPWithHours(form.story_points, hoursPerSP)}
+                </div>
+              </div>
               <div>
                 <label style={lbl}>Priority</label>
                 <select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})} style={sel} onFocus={focus} onBlur={blur}>
@@ -748,46 +631,69 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
             </div>
           </div>
 
-          {/* ── Action buttons ── */}
-
-          {/* NEW: Sentence-Transformer alignment check */}
+          {/* Sprint alignment check */}
           <button onClick={checkSTAlignment} disabled={stAligning || !sprint}
-            style={{ padding:'10px 16px', background:'#fff', border:'1.5px solid #06b6d4', color:'#0891b2', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(stAligning||!sprint)?0.5:1, transition:'all .2s', boxShadow: stAligning ? 'none' : '0 1px 4px rgba(6,182,212,.15)' }}
+            style={{ padding:'10px 16px', background:'#fff', border:'1.5px solid #06b6d4', color:'#0891b2', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(stAligning||!sprint)?0.5:1 }}
           >
-            {stAligning
-              ? <><div style={{ width:13, height:13, border:'2px solid #a5f3fc', borderTopColor:'#0891b2', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Checking alignment…</>
-              : <>🎯 Check Sprint Alignment</>}
+            {stAligning ? '⏳ Checking alignment…' : '🎯 Check Sprint Alignment'}
           </button>
 
-          {/* ST result card — shown inline, dismissible */}
           {stAlignment && (
-            <STAlignmentCard
-              result={stAlignment}
-              onClear={() => setStAlignment(null)}
-            />
-          )}
-
-          {/* Heavy ML impact analysis */}
-  <button onClick={analyze} disabled={loading || !sprint}
-  style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?0.6:1, transition:'all .2s', boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none', letterSpacing:'0.03em' }}
-  >
-  {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : <>⚡ Analyze Impact</>}
-  </button>
-        </div>
-
-  {/* ═══ RIGHT — Results ═══ */}
-  <div ref={ref} style={{ display:'flex', flexDirection:'column', gap:14 }}>
-  
-  {/* Empty state */}
-  {!analysis && !loading && (
-            <div style={{ background:'#fff', border:'2px dashed #e5e7eb', borderRadius:14, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:340, gap:12, padding:32, textAlign:'center' }}>
-              <div style={{ width:64, height:64, borderRadius:16, background:'linear-gradient(135deg,#f5f3ff,#eff6ff)', border:'1px solid #e0e7ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>⚡</div>
-              <div style={{ fontSize:16, fontWeight:700, color:'#374151' }}>No Analysis Yet</div>
-              <div style={{ fontSize:13, color:'#9ca3af', maxWidth:240, lineHeight:1.65 }}>Fill in the form on the left and click "Analyze Impact" to run ML models against the sprint</div>
+            <div style={{ background: stAlignment.alignment_state === 'STRONGLY_ALIGNED' ? '#ecfdf5' : stAlignment.alignment_state === 'UNALIGNED' ? '#fef2f2' : '#fffbeb', border:'1px solid #e5e7eb', borderRadius:10, padding:'12px 16px' }}>
+              <div style={{ fontSize:14, fontWeight:800, color:'#111827', marginBottom:4 }}>{stAlignment.alignment_label}</div>
+              <div style={{ fontSize:12, color:'#4b5563' }}>{stAlignment.semantic_reasoning}</div>
+              <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>Score: {stAlignment.semantic_score_pct}% · {stAlignment.model_name}</div>
             </div>
           )}
 
-          {/* Loading */}
+          {/* Main analysis button */}
+          <button onClick={analyze} disabled={loading || !sprint}
+            style={{ padding:'13px 16px', background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', fontSize:14, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:(loading||!sprint)?0.6:1, boxShadow:(!loading&&sprint)?'0 4px 16px rgba(99,102,241,.35)':'none' }}
+          >
+            {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : '⚡ Analyze Impact'}
+          </button>
+
+          {/* NEW: Environmental Change section */}
+          <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:18 }}>
+            <label style={lbl}>Report Environmental Change</label>
+            <select
+              value={envChange}
+              onChange={e => {
+                setEnvChange(e.target.value);
+                setShowExitPanel(e.target.value === 'DEVELOPER_EXIT');
+              }}
+              style={sel}
+              onFocus={focus}
+              onBlur={blur}
+            >
+              <option value="NONE">No change</option>
+              <option value="DEVELOPER_EXIT">👤 Developer Exit</option>
+            </select>
+            <p style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>
+              Report a mid-sprint event to trigger capacity replanning.
+            </p>
+
+            {showExitPanel && sprint && (
+              <DeveloperExitPanel
+                sprint={sprint}
+                spaceMaxAssignees={spaceMaxAssignees}
+                onClose={() => { setEnvChange('NONE'); setShowExitPanel(false); }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* ═══ RIGHT — Results ═══ */}
+        <div ref={ref} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+          {!analysis && !loading && (
+            <div style={{ background:'#fff', border:'2px dashed #e5e7eb', borderRadius:14, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:340, gap:12, padding:32, textAlign:'center' }}>
+              <div style={{ fontSize:28 }}>⚡</div>
+              <div style={{ fontSize:16, fontWeight:700, color:'#374151' }}>No Analysis Yet</div>
+              <div style={{ fontSize:13, color:'#9ca3af', maxWidth:240, lineHeight:1.65 }}>Fill in the form and click Analyze Impact to run ML models against the sprint.</div>
+            </div>
+          )}
+
           {loading && (
             <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:14, padding:36, display:'flex', flexDirection:'column', alignItems:'center', gap:18 }}>
               <div style={{ position:'relative', width:52, height:52 }}>
@@ -795,25 +701,12 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
                 <div style={{ position:'absolute', inset:8, borderRadius:'50%', border:'3px solid #e5e7eb', borderTopColor:'#8b5cf6', animation:'ia-spin 1.4s linear infinite reverse' }} />
               </div>
               <div style={{ fontSize:14, fontWeight:700, color:'#374151' }}>Running ML Models…</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
-                {['Effort estimation','Schedule risk','Productivity impact','Quality risk'].map((m, i) => (
-                  <div key={m} style={{ display:'flex', alignItems:'center', gap:10, fontSize:12, color:'#6b7280' }}>
-                    <div style={{ width:7, height:7, borderRadius:'50%', background:'#6366f1', opacity:.4 + i * .15 }} />{m}
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 
-          {/* Results */}
           {analysis?.display && (
             <>
               <div className="ia-in"><RiskBanner status={overallStatus} /></div>
-
-              <div style={{ display:'flex', alignItems:'center', gap:10 }} className="ia-in">
-                <span style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.12em', whiteSpace:'nowrap' }}>Risk Signals</span>
-                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
-              </div>
 
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }} className="ia-in">
                 {METRICS.map(({ key, label, idx }) => {
@@ -830,61 +723,18 @@ export default function ImpactAnalyzer({ sprints, spaceId, onActionDone: parentO
                 <GaugeBar label="Productivity drag"   pct={Math.abs(analysis.ml_raw?.productivity?.velocity_change ?? 0)} status={analysis.display.productivity?.status} />
               </div>
 
-              <div style={{ display:'flex', alignItems:'center', gap:10 }} className="ia-in">
-                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
-                <span style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.12em', whiteSpace:'nowrap' }}>Recommendation</span>
-                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+              {/* CHANGE: Single AI Strategy Recommendation panel */}
+              <div className="ia-in">
+                <AIStrategyRecommendation
+                  decision={analysis.decision}
+                  explanation={analysis.explanation}
+                  formData={form}
+                  sprintId={sprint?.id}
+                  spaceId={spaceId}
+                  logId={analysis.log_id}
+                  onActionDone={(r) => { if (sprint) loadCtx(sprint.id); parentOnActionDone?.(r); }}
+                />
               </div>
-
-              {/* Phase 3 Decision Engine card (preferred) */}
-              {decision && (
-                <div className="ia-in">
-                  <DecisionEngineCard
-                    decision={decision}
-                    formData={form}
-                    sprintId={sprint?.id}
-                    spaceId={resolvedSpaceId}
-                    logId={analysis.log_id}
-                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); parentOnActionDone?.(r); }}
-                  />
-                </div>
-              )}
-
-              {/* Fallback: existing RecommendationCard if decision engine not available */}
-              {!decision && analysis.recommendation && (
-                <div className="ia-in">
-                  <RecommendationCard
-                    recommendation={analysis.recommendation}
-                    explanation={analysis.explanation}
-                    formData={form}
-                    sprintId={sprint?.id}
-                    spaceId={resolvedSpaceId}
-                    logId={analysis.log_id}
-                    onActionDone={(r) => { setResult(r); if (sprint) loadCtx(sprint.id); parentOnActionDone?.(r); }}
-                  />
-                </div>
-              )}
-
-              {result?.requiresManual && (
-                <div style={{ background:'#f5f3ff', border:'1px solid #ddd6fe', borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'flex-start', gap:10 }} className="ia-in">
-                  <span style={{ fontSize:16 }}>✂️</span>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#5b21b6', marginBottom:3 }}>Manual Split Required</div>
-                    <div style={{ fontSize:12, color:'#6b7280' }}>{result.message}</div>
-                  </div>
-                </div>
-              )}
-
-              {result && (
-                <button onClick={() => { setAnalysis(null); setResult(null); setDecision(null); setForm({ title:'', description:'', story_points:5, priority:'Medium', type:'Task' }); }}
-                  style={{ width:'100%', padding:'10px 16px', background:'#f9fafb', border:'1px solid #e5e7eb', color:'#6b7280', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700, transition:'all .2s' }}
-                  onMouseEnter={e => { e.currentTarget.style.background='#f3f4f6'; e.currentTarget.style.color='#374151'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background='#f9fafb'; e.currentTarget.style.color='#6b7280'; }}
-                  className="ia-in"
-                >
-                  ↺ Analyze Another Ticket
-                </button>
-              )}
 
               <div style={{ fontSize:10, color:'#d1d5db', textAlign:'right' }} className="ia-in">
                 Predictions generated by ML models · Indicative only

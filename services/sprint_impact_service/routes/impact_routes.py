@@ -1,116 +1,79 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
 from pymongo import DESCENDING
 
 from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint
 from impact_predictor import impact_predictor
-from recommendation_engine import RecommendationEngine
+from decision_engine import (
+    calculate_agile_recommendation,
+    process_developer_exit,
+    check_productivity_saturation,
+)
 from explanation_generator import explanation_generator
 from input_validation import validate_requirement
+from models import DeveloperExitRequest
 
 router = APIRouter()
 
+
 def parse_datetime_string(date_str: str) -> datetime:
-    """
-    Parse datetime string in multiple formats.
-    Handles: 'YYYY-MM-DD', ISO 8601 with time 'YYYY-MM-DDTHH:MM:SS.ffffff', and variations.
-    """
     if not date_str:
         return None
-    
-    # Try ISO format first (with or without timezone)
     try:
         return datetime.fromisoformat(date_str)
     except (ValueError, TypeError):
         pass
-    
-    # Try YYYY-MM-DD format
     try:
         return datetime.strptime(date_str, '%Y-%m-%d')
     except (ValueError, TypeError):
         pass
-    
-    # Try other common formats
-    formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']
-    for fmt in formats:
+    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y', '%m/%d/%Y']:
         try:
             return datetime.strptime(date_str, fmt)
         except (ValueError, TypeError):
             continue
-    
     raise ValueError(f"Unable to parse date string: {date_str}")
 
 
 async def calculate_dynamic_focus_hours(space_id: str, fallback: float = 6.0) -> float:
-    """
-    Calculate focus hours per day dynamically based on the team's previous sprint.
-    
-    Formula: (Assignees * Days * 8 hours) / Completed SP = hours per story point
-    Then: focus_hours_per_day = team_velocity (SP per day) * hours_per_sp
-    
-    If no previous sprint exists, return fallback (6.0).
-    """
     try:
         db = get_database()
-        
-        # Find the most recently COMPLETED sprint for this space
         completed_sprint = await db.sprints.find_one(
             {"space_id": space_id, "status": "Completed"},
-            sort=[("updated_at", DESCENDING)]
+            sort=[("updated_at", DESCENDING)],
         )
-        
         if not completed_sprint:
             return fallback
-        
-        # Get start/end dates
+
         start_date = completed_sprint.get("start_date")
-        end_date = completed_sprint.get("end_date")
-        
+        end_date   = completed_sprint.get("end_date")
         if not start_date or not end_date:
             return fallback
-        
-        # Calculate duration in days
+
         if isinstance(start_date, str):
             start_date = parse_datetime_string(start_date)
         if isinstance(end_date, str):
             end_date = parse_datetime_string(end_date)
-        
+
         sprint_duration_days = max(1, (end_date - start_date).days)
-        
-        # Get all completed items from this sprint
-        sprint_id_str = str(completed_sprint["_id"])
+        sprint_id_str        = str(completed_sprint["_id"])
+
         completed_items = await db.backlog_items.find(
-            {
-                "sprint_id": sprint_id_str,
-                "status": "Done"
-            }
+            {"sprint_id": sprint_id_str, "status": "Done"}
         ).to_list(length=None)
-        
+
         completed_sp = sum(item.get("story_points", 0) for item in completed_items)
-        
         if completed_sp == 0:
             return fallback
-        
-        # Get number of assignees
-        num_assignees = len(completed_sprint.get("assignees", [])) or 1
-        
-        # Calculate hours per story point
-        # (Assignees * Days * 8 hours) / Completed SP
-        hours_per_sp = (num_assignees * sprint_duration_days * 8) / completed_sp
-        
-        # Daily focus capacity per developer
-        # This is the hours per SP * average SP completed per day
-        daily_sp = completed_sp / sprint_duration_days
+
+        num_assignees      = len(completed_sprint.get("assignees", [])) or 1
+        hours_per_sp       = (num_assignees * sprint_duration_days * 8) / completed_sp
+        daily_sp           = completed_sp / sprint_duration_days
         dynamic_focus_hours = daily_sp * hours_per_sp / num_assignees
-        
-        # Cap between 2.0 and 10.0 hours per day (reasonable bounds)
-        dynamic_focus_hours = max(2.0, min(10.0, dynamic_focus_hours))
-        
-        return round(dynamic_focus_hours, 1)
-    
+        return max(2.0, min(10.0, round(dynamic_focus_hours, 1)))
     except Exception as e:
         print(f"Error calculating dynamic focus hours: {e}")
         return fallback
@@ -165,10 +128,25 @@ def _build_sprint_context(sprint: dict, existing_items: list) -> dict:
         "team_velocity_14d":       velocity,
         "current_load":            total_sp,
         "item_count":              len(existing_items),
+        # NEW: pass assignee_count through so impact_predictor can use it
+        "assignee_count":          sprint.get("assignee_count", 2),
     }
 
 
-def _derive_risk_level(schedule_risk: float, quality_risk: float) -> str:
+def _derive_risk_level_from_ml(schedule_risk: float, quality_risk: float) -> str:
+    """
+    Convert raw ML probabilities (0–100 scale) to LOW/MEDIUM/HIGH string
+    used by the decision engine.
+    """
+    if schedule_risk > 55 or quality_risk > 60:
+        return "HIGH"
+    if schedule_risk > 35 or quality_risk > 40:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _derive_risk_level_for_history(schedule_risk: float, quality_risk: float) -> str:
+    """For history display (stored as critical/high/medium/low)."""
     if schedule_risk > 0.55 or quality_risk > 0.60:
         return "critical"
     if schedule_risk > 0.35 or quality_risk > 0.40:
@@ -197,6 +175,8 @@ async def get_sprint_context(sprint_id: str):
         "sprint_progress": ctx["sprint_progress"],
         "team_velocity":   ctx["team_velocity_14d"],
         "free_capacity":   max(0, ctx["team_velocity_14d"] - ctx["current_load"]),
+        # NEW: expose assignee_count in context
+        "assignee_count":  ctx["assignee_count"],
     }
 
 
@@ -206,7 +186,6 @@ async def get_analysis_history(
     limit: int = Query(default=50, le=200),
 ):
     db = get_database()
-
     sprint_ids: list[str]        = []
     sprint_names: dict[str, str] = {}
 
@@ -228,10 +207,15 @@ async def get_analysis_history(
 
     async for doc in cursor:
         sprint_id = doc.get("sprint_id", "")
-        risk      = _derive_risk_level(
-            doc.get("ml_schedule_risk", 0.0),
-            doc.get("ml_quality_risk",  0.0),
-        )
+        # Use stored risk level if available (set at analysis time), else re-derive
+        stored_risk = doc.get("resolved_risk_level")
+        if stored_risk:
+            risk = stored_risk
+        else:
+            risk = _derive_risk_level_for_history(
+                doc.get("ml_schedule_risk", 0.0),
+                doc.get("ml_quality_risk",  0.0),
+            )
         created = doc.get("created_at")
         logs.append({
             "log_id":         str(doc["_id"]),
@@ -241,7 +225,8 @@ async def get_analysis_history(
             "story_points":   doc.get("work_item_story_points", 0),
             "priority":       doc.get("work_item_priority", ""),
             "risk":           risk,
-            "recommendation": doc.get("suggested_action", ""),
+            # CHANGE: single "decision_output" field instead of two contradictory ones
+            "recommendation": doc.get("decision_output", doc.get("suggested_action", "")),
             "taken_action":   doc.get("taken_action"),
             "accepted":       doc.get("accepted"),
             "date":           created.isoformat() if isinstance(created, datetime) else str(created or ""),
@@ -252,15 +237,12 @@ async def get_analysis_history(
 
 @router.post("/analyze")
 async def analyze_impact(body: AnalyzeRequest):
-    # 0. INPUT VALIDATION: Reject gibberish before ML processing
+    # 0. Input validation
     is_valid, error_message = validate_requirement(body.title, body.description)
     if not is_valid:
-        raise HTTPException(
-            status_code=400,
-            detail=error_message
-        )
-    
-    # 1. Fetch sprint
+        raise HTTPException(status_code=400, detail=error_message)
+
+    # 1. Fetch sprint and items
     sprint = await get_sprint_by_id(body.sprint_id)
     if not sprint:
         raise HTTPException(status_code=404, detail=f"Sprint '{body.sprint_id}' not found.")
@@ -268,24 +250,22 @@ async def analyze_impact(body: AnalyzeRequest):
     existing_items = await get_backlog_items_by_sprint(body.sprint_id)
     sprint_context = _build_sprint_context(sprint, existing_items)
 
-    # 2. Fetch space to get risk_appetite, then calculate dynamic focus hours
+    # 2. Space settings
     focus_hours_per_day = 6.0
-    risk_appetite = "Standard"
-    space_id = sprint.get("space_id", "")
+    risk_appetite       = "Standard"
+    space_id            = sprint.get("space_id", "")
     if space_id:
         try:
             db    = get_database()
             space = await db.spaces.find_one({"_id": ObjectId(space_id)}) if ObjectId.is_valid(space_id) else None
             if space:
-                risk_appetite = space.get("risk_appetite", "Standard")
-                # Calculate dynamic focus hours from previous sprint
+                risk_appetite       = space.get("risk_appetite", "Standard")
                 focus_hours_per_day = await calculate_dynamic_focus_hours(
                     space_id,
-                    fallback=float(space.get("focus_hours_per_day", 6.0))
+                    fallback=float(space.get("focus_hours_per_day", 6.0)),
                 )
         except Exception as e:
             print(f"Error fetching space settings: {e}")
-            pass  # fall back to defaults if lookup fails
 
     item_data = {
         "title":        body.title,
@@ -297,7 +277,7 @@ async def analyze_impact(body: AnalyzeRequest):
         "sprint_id":    body.sprint_id,
     }
 
-    # 3. ML predictions — pass focus_hours_per_day and risk_appetite into the predictor
+    # 3. ML predictions
     try:
         ml_result = impact_predictor.predict_all_impacts(
             item_data, sprint_context, existing_items,
@@ -315,42 +295,80 @@ async def analyze_impact(body: AnalyzeRequest):
         "free_capacity":   max(0, sprint_context["team_velocity_14d"] - sprint_context["sprint_load_7d"]),
     }
 
-    # 4. Recommendation + explanation
-    # Create engine instance with space's risk_appetite setting
-    engine = RecommendationEngine(risk_appetite=risk_appetite)
-    recommendation = engine.generate_recommendation(
-        new_ticket     = item_data,
-        sprint_context = sprint_context,
-        active_items   = existing_items,
-        ml_predictions = raw_ml,
+    # 3a. Productivity saturation guard — replaces the fabricated "-99% Drop"
+    prod_raw = ml_result.get("productivity", {})
+    raw_log_preds = prod_raw.get("_raw_log_predictions", [])  # list of raw log values from ensemble
+    if raw_log_preds:
+        max_raw = max(raw_log_preds)
+        saturation = check_productivity_saturation(max_raw)
+        if saturation["saturated"]:
+            # Override the display metric with VOLATILE state
+            if "display" in ml_result and "productivity" in ml_result["display"]:
+                ml_result["display"]["productivity"].update({
+                    "value":    "VOLATILE",
+                    "label":    "Model Saturated",
+                    "status":   "critical",
+                    "sub_text": saturation["sub_text"],
+                })
+
+    # 4. Phase 1 — Sprint alignment (if available from prior check)
+    # The alignment_state is passed from the frontend when the user has already
+    # run "Check Sprint Alignment". If not provided, default to STRONGLY_ALIGNED
+    # so capacity rules still apply (alignment check is a separate optional step).
+    alignment_state = body.__dict__.get("alignment_state", "STRONGLY_ALIGNED")
+
+    # 5. UNIFIED Decision Engine — replaces both old RecommendationEngine AND old decision_engine
+    risk_level_str = _derive_risk_level_from_ml(
+        raw_ml["schedule_risk"],
+        raw_ml["quality_risk"],
     )
+    effort_sp     = ml_result.get("effort", {}).get("hours_median", body.story_points * 6) / max(focus_hours_per_day, 1)
+    free_capacity = raw_ml["free_capacity"]
+
+    decision = calculate_agile_recommendation(
+        alignment_state = alignment_state,
+        effort_sp       = effort_sp,
+        free_capacity   = free_capacity,
+        priority        = body.priority,
+        risk_level      = risk_level_str,
+    )
+
+    # Generate explanation (kept for UI detail panel)
     explanation = explanation_generator.generate_explanation({
-        "recommendation_type": recommendation.get("recommendation_type", "DEFER"),
-        "reasoning":           recommendation.get("reasoning", ""),
-        "target_ticket":       recommendation.get("target_ticket"),
+        "recommendation_type": decision.action,
+        "reasoning":           decision.reasoning,
+        "target_ticket":       None,
         "impact_analysis":     raw_ml,
-        "action_plan":         recommendation.get("action_plan", {}),
+        "action_plan":         {},
         "work_item_data":      item_data,
     })
 
-    # 5. Log to MongoDB
+    # 6. Log to MongoDB — single decision_output field (no more dual contradictory fields)
     log_id = None
     try:
         db = get_database()
+        # Resolve and STORE the risk level so history display is consistent
+        resolved_risk = _derive_risk_level_for_history(
+            raw_ml["schedule_risk"] / 100,
+            raw_ml["quality_risk"]  / 100,
+        )
         result = await db.recommendation_logs.insert_one({
             "sprint_id":                body.sprint_id,
             "space_id":                 space_id,
             "work_item_title":          body.title,
             "work_item_story_points":   body.story_points,
             "work_item_priority":       body.priority,
-            "suggested_action":         recommendation.get("recommendation_type"),
-            "recommendation_reasoning": recommendation.get("reasoning", ""),
-            "target_ticket_id":         (recommendation.get("target_ticket") or {}).get("id"),
-            "target_ticket_title":      (recommendation.get("target_ticket") or {}).get("title"),
+            # CHANGE: single field — was two fields (suggested_action + decision engine output)
+            "decision_output":          decision.action,
+            "rule_triggered":           decision.rule_triggered,
+            "recommendation_reasoning": decision.reasoning,
             "ml_schedule_risk":         raw_ml["schedule_risk"],
             "ml_quality_risk":          raw_ml["quality_risk"],
             "ml_velocity_change":       raw_ml["velocity_change"],
             "focus_hours_per_day":      focus_hours_per_day,
+            "risk_level":               risk_level_str,
+            # Store resolved risk so history never re-derives with wrong thresholds
+            "resolved_risk_level":      resolved_risk,
             "accepted":                 None,
             "taken_action":             None,
             "user_rating":              None,
@@ -358,8 +376,8 @@ async def analyze_impact(body: AnalyzeRequest):
             "updated_at":               datetime.utcnow(),
         })
         log_id = str(result.inserted_id)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Log write failed: {e}")
 
     return {
         "log_id":       log_id,
@@ -374,8 +392,9 @@ async def analyze_impact(body: AnalyzeRequest):
             "productivity":  ml_result.get("productivity",  {}),
             "summary":       ml_result.get("summary",       {}),
         },
-        "recommendation": recommendation,
-        "explanation":    dict(explanation),
+        # CHANGE: single "decision" field instead of "recommendation" + "decision" (was contradictory)
+        "decision":     decision.to_dict(),
+        "explanation":  dict(explanation),
         "sprint_context": {
             "current_load":         sprint_context["current_load"],
             "item_count":           sprint_context["item_count"],
@@ -383,6 +402,7 @@ async def analyze_impact(body: AnalyzeRequest):
             "sprint_progress":      sprint_context["sprint_progress"],
             "free_capacity":        raw_ml["free_capacity"],
             "focus_hours_per_day":  focus_hours_per_day,
+            "assignee_count":       sprint_context["assignee_count"],
         },
     }
 
@@ -392,7 +412,7 @@ async def record_feedback(log_id: str, body: FeedbackRequest):
     if not ObjectId.is_valid(log_id):
         raise HTTPException(status_code=400, detail="Invalid log_id.")
 
-    db = get_database()
+    db     = get_database()
     update = {"updated_at": datetime.utcnow()}
     if body.accepted     is not None: update["accepted"]     = body.accepted
     if body.taken_action is not None: update["taken_action"] = body.taken_action
@@ -413,68 +433,92 @@ async def record_feedback(log_id: str, body: FeedbackRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# EXECUTE RECOMMENDATION — Apply action to database (ADD, DEFER, SWAP, SPLIT)
+# NEW ENDPOINT — Developer Exit / MSR-A Replanning
+# POST /api/impact/developer-exit
 # ══════════════════════════════════════════════════════════════════════════════
 
-class ExecuteRecommendationRequest(BaseModel):
-    """Execute a recommendation: ADD, DEFER, SWAP, SPLIT, FORCE SWAP, or OVERLOAD"""
-    recommendation: dict = Field(..., description="Full recommendation from /analyze")
-    new_ticket: dict = Field(..., description="Task details {title, description, story_points, priority, ...}")
-    sprint_id: str = Field(..., description="Target sprint ID")
-    space_id: str = Field(..., description="Space ID")
-
-
-@router.post("/execute-recommendation")
-async def execute_recommendation(body: ExecuteRecommendationRequest):
+@router.post("/developer-exit")
+async def handle_developer_exit(body: DeveloperExitRequest):
     """
-    Execute the recommended action in the database.
-    
-    Actions:
-    - ADD: Insert into active sprint
-    - DEFER: Insert into backlog
-    - SPLIT: Create two sub-tickets
-    - SWAP: Move lower-priority item to backlog, add new item to sprint
-    - FORCE SWAP: Emergency swap (same as SWAP, for critical issues)
-    - OVERLOAD: Add despite overload (with warning)
-    
-    Returns:
-    {
-        "status": "success",
-        "action": "ADD|DEFER|SWAP|SPLIT|OVERLOAD|FORCE SWAP",
-        "new_task_id": "mongo_id",
-        "new_task_ids": ["id1", "id2"],  # For SPLIT
-        "swapped_task_id": "mongo_id",   # For SWAP/FORCE SWAP
-    }
+    Mid-Sprint Resource Attrition (MSR-A) replanning endpoint.
+
+    Validates that new_developer_count >= 2 and that the sprint exists.
+    Fetches all incomplete tasks, runs basic ML schedule risk if available,
+    and returns the unified decision engine's per-task recommendations.
     """
-    print(
-        f"[EXECUTE_RECOMMENDATION] Endpoint: action={body.recommendation.get('recommendation_type')}, "
-        f"sprint={body.sprint_id}, new_sp={body.new_ticket.get('story_points')}",
-        file=sys.stderr,
+    sprint = await get_sprint_by_id(body.sprint_id)
+    if not sprint:
+        raise HTTPException(status_code=404, detail=f"Sprint '{body.sprint_id}' not found.")
+
+    # Validate new count against space limit
+    space_id = sprint.get("space_id", "")
+    if space_id:
+        try:
+            db    = get_database()
+            space = await db.spaces.find_one({"_id": ObjectId(space_id)}) if ObjectId.is_valid(space_id) else None
+            if space:
+                space_max = space.get("max_assignees", 999)
+                if body.new_developer_count > space_max:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"new_developer_count ({body.new_developer_count}) exceeds space limit ({space_max}).",
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Space validation error: {e}")
+
+    existing_items = await get_backlog_items_by_sprint(body.sprint_id)
+
+    # Build task list for the engine
+    task_list = []
+    for item in existing_items:
+        task_list.append({
+            "id":           item["id"],
+            "title":        item["title"],
+            "story_points": item.get("story_points", 0),
+            "priority":     item.get("priority", "Medium"),
+            "status":       item.get("status", "To Do"),
+            # Map status to simple alignment: Done items marked, In Progress = medium, To Do = varies
+            "alignment":    "HIGH" if item.get("status") in ("In Progress", "In Review") else "MEDIUM",
+        })
+
+    total_sp    = sum(i.get("story_points", 0) for i in existing_items)
+    remaining_sp = sum(
+        i.get("story_points", 0) for i in existing_items
+        if i.get("status") != "Done"
     )
-    
+
+    sprint_context = {
+        "total_points":     total_sp,
+        "remaining_points": remaining_sp,
+        "original_devs":    sprint.get("assignee_count", 2),
+        "active_devs":      body.new_developer_count,
+        "buffer_ratio":     body.buffer_ratio,
+    }
+
+    result = process_developer_exit(
+        sprint_context = sprint_context,
+        task_list      = task_list,
+        ml_metadata    = {},    # ML per-task risk can be added if needed
+    )
+
+    # Log the environmental change
     try:
         db = get_database()
-        
-        # Get risk appetite from space (default: "Standard")
-        space = await db.spaces.find_one({"_id": ObjectId(body.space_id)})
-        risk_appetite = space.get("risk_appetite", "Standard") if space else "Standard"
-        
-        # Create recommendation engine with space's risk appetite
-        engine = RecommendationEngine(risk_appetite=risk_appetite)
-        
-        # Execute the recommendation
-        result = await engine.execute_recommendation(
-            recommendation=body.recommendation,
-            new_ticket=body.new_ticket,
-            sprint_id=body.sprint_id,
-            db=db,
-            sio=None,  # SocketIO integration would go here if available
-        )
-        
-        return result
-    
-    except HTTPException:
-        raise
+        await db.recommendation_logs.insert_one({
+            "sprint_id":        body.sprint_id,
+            "space_id":         space_id,
+            "event_type":       "DEVELOPER_EXIT",
+            "original_devs":    sprint_context["original_devs"],
+            "active_devs":      body.new_developer_count,
+            "severity":         result["severity"],
+            "overall_strategy": result["overall_strategy"],
+            "decision_output":  f"MSR-A:{result['severity']}",
+            "created_at":       datetime.utcnow(),
+            "updated_at":       datetime.utcnow(),
+        })
     except Exception as e:
-        print(f"[EXECUTE_RECOMMENDATION] ERROR: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Developer exit log failed: {e}")
+
+    return result

@@ -69,10 +69,24 @@ class SprintCreate(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     space_id: str
+    # NEW: how many developers are assigned to this sprint at planning time.
+    # Must be >= 2 and <= space.max_assignees.
+    # This is the "original_devs" used for capacity math and developer exit calculations.
+    assignee_count: int = Field(
+        default=2,
+        ge=2,
+        description="Number of developers assigned. Min 2, max = space.max_assignees.",
+    )
 
 class SprintUpdate(BaseModel):
     name: Optional[str] = None
     goal: Optional[str] = None
+    # Allow updating assignee count (e.g. someone joins mid-sprint)
+    assignee_count: Optional[int] = Field(
+        default=None,
+        ge=2,
+        description="Updated developer count. Min 2, max = space.max_assignees.",
+    )
 
 class Sprint(BaseModel):
     id: str
@@ -84,7 +98,10 @@ class Sprint(BaseModel):
     space_id: str
     status: SprintStatus
     assignees: List[int] = []
-    historical_pace: float = 1.0  # TEAM_PACE: completed_sp / dev_days (default 1.0)
+    # NEW: stored separately from the assignee number list.
+    # assignee_count is the planning headcount (drives capacity math).
+    assignee_count: int = 2
+    historical_pace: float = 1.0
     created_at: datetime
     updated_at: datetime
 
@@ -128,3 +145,18 @@ class SprintFinishRequest(BaseModel):
 
 class AddAssigneeRequest(BaseModel):
     assignee_number: int
+
+# NEW: Developer exit request — triggers MSR-A replanning
+class DeveloperExitRequest(BaseModel):
+    sprint_id: str = Field(..., description="ID of the affected sprint")
+    new_developer_count: int = Field(
+        ...,
+        ge=2,
+        description="Developer count AFTER the exit. Must be >= 2.",
+    )
+    buffer_ratio: float = Field(
+        default=0.20,
+        ge=0.0,
+        le=0.5,
+        description="Stability buffer (0.20 = 20%). Default matches spec.",
+    )
