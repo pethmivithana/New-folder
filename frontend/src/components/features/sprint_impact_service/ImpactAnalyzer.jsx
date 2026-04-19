@@ -9,13 +9,7 @@
  *    New: one panel labelled "AI Strategy Recommendation" that always uses
  *    the unified decision engine result from analysis.decision.
  *
- * 2. ENVIRONMENTAL CHANGE — DEVELOPER EXIT
- *    A new "Report Environmental Change" dropdown beneath the main form lets
- *    the user trigger mid-sprint replanning. Selecting DEVELOPER_EXIT reveals:
- *      - Current dev count (read from sprint context assignee_count)
- *      - New dev count input (min 2, max space.max_assignees)
- *      - "Run Replanning" button → POST /api/impact/developer-exit
- *      - Results shown as a capacity analysis + per-task decision table
+
  *
  * 3. VOLATILE PRODUCTIVITY DISPLAY
  *    When display.productivity.value === "VOLATILE", a red "VOLATILE" badge
@@ -300,79 +294,7 @@ function AIStrategyRecommendation({ decision, explanation, formData, sprintId, s
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// NEW: Developer Exit Environmental Change Panel
-// ══════════════════════════════════════════════════════════════════════════════
-
-function DeveloperExitPanel({ sprint, spaceMaxAssignees, onClose }) {
-  const currentDevs    = sprint?.assignee_count ?? 2;
-  const [newDevs, setNewDevs]       = useState(Math.max(2, currentDevs - 1));
-  const [loading, setLoading]       = useState(false);
-  const [result,  setResult]        = useState(null);
-  const [error,   setError]         = useState('');
-
-  const SEVERITY_COLORS = {
-    LOW:      { bg:'#ecfdf5', border:'#a7f3d0', text:'#065f46', dot:'#10b981' },
-    HIGH:     { bg:'#fffbeb', border:'#fde68a', text:'#78350f', dot:'#f59e0b' },
-    CRITICAL: { bg:'#fef2f2', border:'#fecaca', text:'#991b1b', dot:'#ef4444' },
-  };
-
-  const ACTION_COLORS = {
-    ABSORB: '#059669', SWARM: '#7c3aed',
-    DEFER: '#d97706', SPLIT: '#7c3aed', KEEP: '#9ca3af',
-  };
-
-  const validate = (v) => {
-    const n = parseInt(v, 10);
-    if (isNaN(n) || n < 2)          return 'Minimum 2 developers.';
-    if (n >= currentDevs)           return 'New count must be less than current count.';
-    if (n > spaceMaxAssignees)      return `Cannot exceed space limit of ${spaceMaxAssignees}.`;
-    return '';
-  };
-
-  const runReplanning = async () => {
-    const err = validate(newDevs);
-    if (err) { setError(err); return; }
-    setLoading(true); setError(''); setResult(null);
-    try {
-      const res = await api.reportDeveloperExit({
-        sprint_id:           sprint.id,
-        new_developer_count: newDevs,
-        buffer_ratio:        0.20,
-      });
-      setResult(res);
-    } catch (e) {
-      setError('Replanning failed: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const sev = result?.severity;
-  const sevColors = sev ? SEVERITY_COLORS[sev] : null;
-
-  return (
-    <div style={{ background:'#fff', border:'1.5px solid #e0e7ff', borderRadius:14, padding:20, marginTop:14 }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:22 }}>👤</span>
-          <div>
-            <div style={{ fontSize:11, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700 }}>Environmental Change</div>
-            <div style={{ fontSize:15, fontWeight:800, color:'#dc2626' }}>Developer Exit — MSR-A</div>
-          </div>
-        </div>
-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:18 }}>✕</button>
-      </div>
-
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
-        <div style={{ background:'#f9fafb', borderRadius:8, padding:12, textAlign:'center' }}>
-          <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', fontWeight:700, marginBottom:4 }}>Current developers</div>
-          <div style={{ fontSize:28, fontWeight:800, color:'#374151' }}>{currentDevs}</div>
-        </div>
-        <div style={{ background:'#fef2f2', borderRadius:8, padding:12, textAlign:'center' }}>
-          <div style={{ fontSize:10, color:'#9ca3af', textTransform:'uppercase', fontWeight:700, marginBottom:4 }}>After exit</div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-            <button onClick={() => setNewDevs(v => Math.max(2, v - 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>−</button>
+on onClick={() => setNewDevs(v => Math.max(2, v - 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>−</button>
             <span style={{ fontSize:28, fontWeight:800, color:'#dc2626' }}>{newDevs}</span>
             <button onClick={() => setNewDevs(v => Math.min(currentDevs - 1, v + 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>+</button>
           </div>
@@ -457,9 +379,7 @@ export default function ImpactAnalyzer({ sprints, spaceId, spaceMaxAssignees = 1
   const [stAlignment, setStAlignment] = useState(null);
   const [stAligning,  setStAligning]  = useState(false);
 
-  // NEW: Environmental change
-  const [envChange,    setEnvChange]    = useState('NONE');
-  const [showExitPanel, setShowExitPanel] = useState(false);
+
 
   const [hoursPerSP, setHoursPerSP] = useState(8.0);
   const ref = useRef(null);
@@ -653,34 +573,7 @@ export default function ImpactAnalyzer({ sprints, spaceId, spaceMaxAssignees = 1
             {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : '⚡ Analyze Impact'}
           </button>
 
-          {/* NEW: Environmental Change section */}
-          <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:18 }}>
-            <label style={lbl}>Report Environmental Change</label>
-            <select
-              value={envChange}
-              onChange={e => {
-                setEnvChange(e.target.value);
-                setShowExitPanel(e.target.value === 'DEVELOPER_EXIT');
-              }}
-              style={sel}
-              onFocus={focus}
-              onBlur={blur}
-            >
-              <option value="NONE">No change</option>
-              <option value="DEVELOPER_EXIT">👤 Developer Exit</option>
-            </select>
-            <p style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>
-              Report a mid-sprint event to trigger capacity replanning.
-            </p>
 
-            {showExitPanel && sprint && (
-              <DeveloperExitPanel
-                sprint={sprint}
-                spaceMaxAssignees={spaceMaxAssignees}
-                onClose={() => { setEnvChange('NONE'); setShowExitPanel(false); }}
-              />
-            )}
-          </div>
         </div>
 
         {/* ═══ RIGHT — Results ═══ */}

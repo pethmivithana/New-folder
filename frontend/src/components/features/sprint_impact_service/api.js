@@ -63,11 +63,7 @@ class ApiClient {
     return this.request(`/impact/history/${spaceId}?limit=${limit}`);
   }
 
-  // NEW: Developer Exit / MSR-A Replanning
-  // POST /api/impact/developer-exit
-  async reportDeveloperExit(data) {
-    return this.request('/impact/developer-exit', { method: 'POST', body: JSON.stringify(data) });
-  }
+
 
   // ── Analytics & Charts ──────────────────────────────────────────────────────
   async getSprintBurndown(sprintId) { return this.request(`/analytics/sprints/${sprintId}/burndown`); }

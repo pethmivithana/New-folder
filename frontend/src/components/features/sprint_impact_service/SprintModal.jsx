@@ -5,10 +5,9 @@ import api from './api';
  * SprintModal.jsx — updated
  *
  * What changed:
- *  1. ASSIGNEE COUNT FIELD (new)
+ *  1. ASSIGNEE COUNT FIELD
  *     A numeric input lets the user set how many developers are assigned at
- *     sprint planning time. This drives the capacity math in developer exit
- *     replanning (original_devs). Constraints:
+ *     sprint planning time. Constraints:
  *       - Min: 2 (hard floor from spec)
  *       - Max: space.max_assignees (fetched from the space prop)
  *     The input shows a live capacity preview: "4 devs × 10 days × 6h = 240h"

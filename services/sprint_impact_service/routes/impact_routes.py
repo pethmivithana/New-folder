@@ -9,12 +9,11 @@ from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint
 from impact_predictor import impact_predictor
 from decision_engine import (
     calculate_agile_recommendation,
-    process_developer_exit,
     check_productivity_saturation,
 )
 from explanation_generator import explanation_generator
 from input_validation import validate_requirement
-from models import DeveloperExitRequest
+
 
 router = APIRouter()
 
@@ -432,93 +431,3 @@ async def record_feedback(log_id: str, body: FeedbackRequest):
     return {"ok": True, "log_id": log_id}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# NEW ENDPOINT — Developer Exit / MSR-A Replanning
-# POST /api/impact/developer-exit
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.post("/developer-exit")
-async def handle_developer_exit(body: DeveloperExitRequest):
-    """
-    Mid-Sprint Resource Attrition (MSR-A) replanning endpoint.
-
-    Validates that new_developer_count >= 2 and that the sprint exists.
-    Fetches all incomplete tasks, runs basic ML schedule risk if available,
-    and returns the unified decision engine's per-task recommendations.
-    """
-    sprint = await get_sprint_by_id(body.sprint_id)
-    if not sprint:
-        raise HTTPException(status_code=404, detail=f"Sprint '{body.sprint_id}' not found.")
-
-    # Validate new count against space limit
-    space_id = sprint.get("space_id", "")
-    if space_id:
-        try:
-            db    = get_database()
-            space = await db.spaces.find_one({"_id": ObjectId(space_id)}) if ObjectId.is_valid(space_id) else None
-            if space:
-                space_max = space.get("max_assignees", 999)
-                if body.new_developer_count > space_max:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"new_developer_count ({body.new_developer_count}) exceeds space limit ({space_max}).",
-                    )
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"Space validation error: {e}")
-
-    existing_items = await get_backlog_items_by_sprint(body.sprint_id)
-
-    # Build task list for the engine
-    task_list = []
-    for item in existing_items:
-        task_list.append({
-            "id":           item["id"],
-            "title":        item["title"],
-            "story_points": item.get("story_points", 0),
-            "priority":     item.get("priority", "Medium"),
-            "status":       item.get("status", "To Do"),
-            # Map status to simple alignment: Done items marked, In Progress = medium, To Do = varies
-            "alignment":    "HIGH" if item.get("status") in ("In Progress", "In Review") else "MEDIUM",
-        })
-
-    total_sp    = sum(i.get("story_points", 0) for i in existing_items)
-    remaining_sp = sum(
-        i.get("story_points", 0) for i in existing_items
-        if i.get("status") != "Done"
-    )
-
-    sprint_context = {
-        "total_points":     total_sp,
-        "remaining_points": remaining_sp,
-        "original_devs":    sprint.get("assignee_count", 2),
-        "active_devs":      body.new_developer_count,
-        "buffer_ratio":     body.buffer_ratio,
-    }
-
-    result = process_developer_exit(
-        sprint_context = sprint_context,
-        task_list      = task_list,
-        ml_metadata    = {},    # ML per-task risk can be added if needed
-    )
-
-    # Log the environmental change
-    try:
-        db = get_database()
-        await db.recommendation_logs.insert_one({
-            "sprint_id":        body.sprint_id,
-            "space_id":         space_id,
-            "event_type":       "DEVELOPER_EXIT",
-            "original_devs":    sprint_context["original_devs"],
-            "active_devs":      body.new_developer_count,
-            "severity":         result["severity"],
-            "overall_strategy": result["overall_strategy"],
-            "decision_output":  f"MSR-A:{result['severity']}",
-            "created_at":       datetime.utcnow(),
-            "updated_at":       datetime.utcnow(),
-        })
-    except Exception as e:
-        print(f"Developer exit log failed: {e}")
-
-    return result

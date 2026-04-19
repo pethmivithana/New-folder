@@ -13,18 +13,13 @@ Why unified:
     could differ. This caused history coherence problems.
   - Now: one engine, one decision, one log entry.
 
-Two entry points:
+Entry point:
 
   1. calculate_agile_recommendation(alignment_state, effort_sp, free_capacity,
                                     priority, risk_level)
      ── Phase 3 task decisions: ADD | DEFER | SPLIT | SWAP
      ── Called by POST /api/ai/decide
      ── ML risk is checked FIRST. High risk blocks ADD regardless of capacity.
-
-  2. process_developer_exit(sprint_context, task_list, ml_metadata)
-     ── Mid-Sprint Resource Attrition (MSR-A) replanning
-     ── Called by POST /api/impact/developer-exit
-     ── Uses Stability Buffer (80% utilization) math from the spec
 
 Productivity saturation guard:
   If the productivity model raw log-space output > 4.5, the percentage number
@@ -61,9 +56,8 @@ MIN_TEAM_SIZE = 2
 
 class DecisionResult:
     """
-    Returned by both calculate_agile_recommendation() and
-    process_developer_exit(). The to_dict() shape is consumed by FastAPI
-    response models.
+    Returned by calculate_agile_recommendation(). 
+    The to_dict() shape is consumed by FastAPI response models.
     """
 
     def __init__(
@@ -262,184 +256,7 @@ def calculate_agile_recommendation(
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ENTRY POINT 2 — Developer exit replanning (Mid-Sprint Resource Attrition)
-# ══════════════════════════════════════════════════════════════════════════════
 
-def process_developer_exit(
-    sprint_context: dict,
-    task_list: list[dict],
-    ml_metadata: dict | None = None,
-) -> dict:
-    """
-    MSR-A: Mid-Sprint Resource Attrition replanning.
-
-    sprint_context keys:
-      total_points       : int   — total SP committed at sprint start
-      remaining_points   : int   — SP not yet completed
-      original_devs      : int   — dev count when sprint was planned
-      active_devs        : int   — dev count after the exit (≥ MIN_TEAM_SIZE)
-      buffer_ratio       : float — default 0.20 (20% stability buffer)
-
-    task_list: list of dicts with keys:
-      id, title, story_points, priority, alignment, status
-
-    ml_metadata: dict keyed by task id:
-      { task_id: { schedule_risk: float 0-1, quality_risk: float 0-1 } }
-
-    Returns a dict with:
-      capacity_analysis  : normalized_capacity, safe_threshold, deficit, verdict
-      per_task_decisions : list of { task_id, title, action, reason, rule }
-      overall_strategy   : summary string
-      severity           : "LOW" | "HIGH" | "CRITICAL"
-    """
-    ml_metadata = ml_metadata or {}
-
-    original_devs = max(1, int(sprint_context.get("original_devs", 1)))
-    active_devs   = max(MIN_TEAM_SIZE, int(sprint_context.get("active_devs", MIN_TEAM_SIZE)))
-    total_points  = float(sprint_context.get("total_points", 0))
-    remaining_sp  = float(sprint_context.get("remaining_points", total_points))
-    buffer_ratio  = float(sprint_context.get("buffer_ratio", DEFAULT_BUFFER_RATIO))
-
-    # ── Capacity math (from spec) ─────────────────────────────────────────────
-    # If 5 devs planned 50 SP, each dev = 10 SP of capacity.
-    # 4 active devs → normalized_capacity = 40 SP.
-    normalized_capacity = (total_points / original_devs) * active_devs
-    safe_threshold      = normalized_capacity * (1.0 - buffer_ratio)
-    deficit             = max(0.0, remaining_sp - safe_threshold)
-    absorb_possible     = remaining_sp <= safe_threshold
-
-    severity = "LOW" if absorb_possible else (
-        "CRITICAL" if deficit > normalized_capacity * 0.3 else "HIGH"
-    )
-
-    capacity_analysis = {
-        "original_devs":        original_devs,
-        "active_devs":          active_devs,
-        "total_points":         total_points,
-        "remaining_points":     remaining_sp,
-        "normalized_capacity":  round(normalized_capacity, 1),
-        "safe_threshold":       round(safe_threshold, 1),
-        "deficit_sp":           round(deficit, 1),
-        "buffer_ratio":         buffer_ratio,
-        "absorb_possible":      absorb_possible,
-        "severity":             severity,
-    }
-
-    # ── Per-task decisions ────────────────────────────────────────────────────
-    per_task_decisions = []
-
-    for task in task_list:
-        task_id    = task.get("id", "")
-        task_ml    = ml_metadata.get(task_id, {})
-        sched_risk = float(task_ml.get("schedule_risk", 0.0))
-        alignment  = (task.get("alignment") or "MEDIUM").upper()
-        priority   = (task.get("priority")  or "Medium").capitalize()
-        status     = (task.get("status")    or "To Do")
-        sp         = float(task.get("story_points", 0))
-
-        # Skip already-done tasks
-        if status == "Done":
-            per_task_decisions.append({
-                "task_id": task_id,
-                "title":   task.get("title", ""),
-                "action":  "KEEP",
-                "reason":  "Already completed. No action needed.",
-                "rule":    "Rule 0 — Done items are untouched",
-            })
-            continue
-
-        # Rule 1: Critical ML risk — cannot absorb even if buffer allows it
-        if sched_risk > 0.85:
-            per_task_decisions.append({
-                "task_id": task_id,
-                "title":   task.get("title", ""),
-                "action":  "SPLIT",
-                "reason":  (
-                    f"Schedule risk {sched_risk:.0%} is above 85% threshold. "
-                    "Even with available capacity, this task is too risky to absorb whole. "
-                    "Split: deliver analysis slice this sprint, implementation next sprint."
-                ),
-                "rule":    "Rule 1 — Critical ML risk override (> 85% schedule risk)",
-            })
-            continue
-
-        # Rule 2: Buffer can absorb the remaining work — no descoping needed
-        if absorb_possible:
-            per_task_decisions.append({
-                "task_id": task_id,
-                "title":   task.get("title", ""),
-                "action":  "ABSORB",
-                "reason":  (
-                    f"Remaining {remaining_sp:.0f} SP ≤ safe threshold {safe_threshold:.0f} SP. "
-                    f"The {int(buffer_ratio * 100)}% stability buffer absorbs the exit. "
-                    "Sprint goal can be maintained without descoping."
-                ),
-                "rule":    "Rule 2 — Buffer absorption (remaining SP within safe threshold)",
-            })
-            continue
-
-        # Rule 3: Forced descoping — remove low-value tasks first
-        if alignment in ("LOW", "UNALIGNED") or priority in ("Low",):
-            per_task_decisions.append({
-                "task_id": task_id,
-                "title":   task.get("title", ""),
-                "action":  "DEFER",
-                "reason":  (
-                    f"Capacity overload after developer exit (deficit: {deficit:.0f} SP). "
-                    f"This task has {alignment} alignment and {priority} priority — "
-                    "removing it first to protect high-value sprint commitments."
-                ),
-                "rule":    "Rule 3 — Forced descoping (low alignment or low priority)",
-            })
-            continue
-
-        # Rule 4: High-value task — remaining team must swarm to complete it
-        per_task_decisions.append({
-            "task_id": task_id,
-            "title":   task.get("title", ""),
-            "action":  "SWARM",
-            "reason":  (
-                f"High-value task ({alignment} alignment, {priority} priority). "
-                "Remaining team should swarm — pair program, reduce WIP, "
-                "and focus collective effort to deliver this sprint commitment."
-            ),
-            "rule":    "Rule 4 — High-value swarming",
-        })
-
-    # ── Overall strategy summary ──────────────────────────────────────────────
-    action_counts = {}
-    for d in per_task_decisions:
-        action_counts[d["action"]] = action_counts.get(d["action"], 0) + 1
-
-    if absorb_possible:
-        overall_strategy = (
-            f"Developer exit absorbed by stability buffer. "
-            f"Normalized capacity: {normalized_capacity:.0f} SP. "
-            f"Remaining work ({remaining_sp:.0f} SP) is within the safe threshold "
-            f"({safe_threshold:.0f} SP). Sprint goal is intact."
-        )
-    elif severity == "CRITICAL":
-        deferred = action_counts.get("DEFER", 0)
-        overall_strategy = (
-            f"CRITICAL capacity deficit of {deficit:.0f} SP. "
-            f"Descoping {deferred} task(s) and swarming on remaining commitments. "
-            f"Sprint goal may need renegotiation with stakeholders."
-        )
-    else:
-        overall_strategy = (
-            f"HIGH impact exit. {deficit:.0f} SP deficit. "
-            f"Swarming on high-value tasks, deferring low-priority work. "
-            "Consider pulling in a contractor or renegotiating one deliverable."
-        )
-
-    return {
-        "capacity_analysis":  capacity_analysis,
-        "per_task_decisions": per_task_decisions,
-        "overall_strategy":   overall_strategy,
-        "severity":           severity,
-        "action_summary":     action_counts,
-    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
