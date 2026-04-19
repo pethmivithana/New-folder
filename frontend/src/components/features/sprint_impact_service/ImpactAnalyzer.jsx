@@ -9,7 +9,6 @@
  *    New: one panel labelled "AI Strategy Recommendation" that always uses
  *    the unified decision engine result from analysis.decision.
  *
-
  *
  * 3. VOLATILE PRODUCTIVITY DISPLAY
  *    When display.productivity.value === "VOLATILE", a red "VOLATILE" badge
@@ -260,7 +259,7 @@ function AIStrategyRecommendation({ decision, explanation, formData, sprintId, s
       ) : (
         <>
           <button onClick={() => doAction(activeAction)} disabled={doing}
-            style={{ width:'100%', padding:'12px 16px', background:meta.color, border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:14, opacity:doing?.7:1, transition:'all .2s', boxShadow:`0 3px 10px ${meta.color}44` }}
+            style={{ width:'100%', padding:'12px 16px', background:meta.color, border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:14, opacity:doing?0.7:1, transition:'all .2s', boxShadow:`0 3px 10px ${meta.color}44` }}
           >
             {doing
               ? <><div style={{ width:14, height:14, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .7s linear infinite' }} /> Applying…</>
@@ -275,7 +274,7 @@ function AIStrategyRecommendation({ decision, explanation, formData, sprintId, s
                 const isSelected = a === activeAction;
                 return (
                   <button key={a} onClick={() => setOverride(a === decision.action ? null : a)} disabled={doing}
-                    style={{ fontSize:11, fontWeight:700, padding:'6px 14px', background: isSelected ? m.color : m.bg, border:`1.5px solid ${isSelected ? m.color : m.border}`, color: isSelected ? '#fff' : m.color, borderRadius:7, cursor:'pointer', opacity:doing?.5:1 }}
+                    style={{ fontSize:11, fontWeight:700, padding:'6px 14px', background: isSelected ? m.color : m.bg, border:`1.5px solid ${isSelected ? m.color : m.border}`, color: isSelected ? '#fff' : m.color, borderRadius:7, cursor:'pointer', opacity:doing?0.5:1 }}
                   >
                     {m.icon} {a}
                   </button>
@@ -294,77 +293,6 @@ function AIStrategyRecommendation({ decision, explanation, formData, sprintId, s
   );
 }
 
-on onClick={() => setNewDevs(v => Math.max(2, v - 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>−</button>
-            <span style={{ fontSize:28, fontWeight:800, color:'#dc2626' }}>{newDevs}</span>
-            <button onClick={() => setNewDevs(v => Math.min(currentDevs - 1, v + 1))} style={{ width:28, height:28, border:'1px solid #e5e7eb', borderRadius:6, background:'#fff', cursor:'pointer', fontWeight:700 }}>+</button>
-          </div>
-        </div>
-      </div>
-
-      {error && <div style={{ fontSize:12, color:'#dc2626', marginBottom:10 }}>⚠️ {error}</div>}
-
-      <button onClick={runReplanning} disabled={loading}
-        style={{ width:'100%', padding:'11px 16px', background:'#dc2626', border:'none', color:'#fff', borderRadius:9, cursor:'pointer', fontSize:13, fontWeight:800, opacity:loading?.7:1 }}
-      >
-        {loading ? '⏳ Running Replanning…' : '🔄 Run Replanning Analysis'}
-      </button>
-
-      {result && (
-        <div style={{ marginTop:16 }}>
-          {/* Severity banner */}
-          <div style={{ background:sevColors.bg, border:`1px solid ${sevColors.border}`, borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
-            <div style={{ width:10, height:10, borderRadius:'50%', background:sevColors.dot, flexShrink:0 }} />
-            <div>
-              <div style={{ fontSize:13, fontWeight:700, color:sevColors.text }}>Severity: {sev}</div>
-              <div style={{ fontSize:11, color:sevColors.text, opacity:.8, marginTop:2 }}>{result.overall_strategy}</div>
-            </div>
-          </div>
-
-          {/* Capacity math */}
-          {result.capacity_analysis && (
-            <div style={{ background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:8, padding:12, marginBottom:14, fontSize:12 }}>
-              <div style={{ fontWeight:700, color:'#374151', marginBottom:8 }}>Capacity Analysis</div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6 }}>
-                {[
-                  ['Normalized capacity', `${result.capacity_analysis.normalized_capacity} SP`],
-                  ['Safe threshold (80%)', `${result.capacity_analysis.safe_threshold} SP`],
-                  ['Remaining work', `${result.capacity_analysis.remaining_points} SP`],
-                  ['Deficit', result.capacity_analysis.deficit_sp > 0 ? `${result.capacity_analysis.deficit_sp} SP` : 'None — buffer absorbs'],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display:'flex', flexDirection:'column' }}>
-                    <span style={{ color:'#9ca3af', fontSize:10, textTransform:'uppercase', fontWeight:600 }}>{k}</span>
-                    <span style={{ color:'#111827', fontWeight:700 }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Per-task decisions */}
-          {result.per_task_decisions?.length > 0 && (
-            <div>
-              <div style={{ fontWeight:700, color:'#374151', fontSize:12, marginBottom:8 }}>Per-Task Decisions</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {result.per_task_decisions.map((d, i) => (
-                  <div key={i} style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, padding:'10px 14px', display:'flex', alignItems:'flex-start', gap:10 }}>
-                    <span style={{ fontSize:10, fontWeight:800, padding:'3px 8px', borderRadius:5, background: ACTION_COLORS[d.action] ? `${ACTION_COLORS[d.action]}15` : '#f3f4f6', color: ACTION_COLORS[d.action] ?? '#374151', border:`1px solid ${ACTION_COLORS[d.action] ?? '#e5e7eb'}33`, whiteSpace:'nowrap', flexShrink:0, marginTop:1 }}>
-                      {d.action}
-                    </span>
-                    <div>
-                      <div style={{ fontSize:12, fontWeight:700, color:'#111827' }}>{d.title}</div>
-                      <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{d.reason}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // Main ImpactAnalyzer
 // ══════════════════════════════════════════════════════════════════════════════
@@ -378,8 +306,6 @@ export default function ImpactAnalyzer({ sprints, spaceId, spaceMaxAssignees = 1
   const [suggesting, setSuggesting] = useState(false);
   const [stAlignment, setStAlignment] = useState(null);
   const [stAligning,  setStAligning]  = useState(false);
-
-
 
   const [hoursPerSP, setHoursPerSP] = useState(8.0);
   const ref = useRef(null);
@@ -572,7 +498,6 @@ export default function ImpactAnalyzer({ sprints, spaceId, spaceMaxAssignees = 1
           >
             {loading ? <><div style={{ width:16, height:16, border:'2px solid rgba(255,255,255,.35)', borderTopColor:'#fff', borderRadius:'50%', animation:'ia-spin .9s linear infinite' }} /> Running ML Analysis…</> : '⚡ Analyze Impact'}
           </button>
-
 
         </div>
 
