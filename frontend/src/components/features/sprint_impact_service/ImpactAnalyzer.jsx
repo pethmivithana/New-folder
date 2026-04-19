@@ -76,7 +76,7 @@ function StatPill({ label, value, accent }) {
   );
 }
 
-function RiskCard({ label, value, status, sub_text, index }) {
+function RiskCard({ label, value, status, sub_text, index, saturation_status }) {
   const [open, setOpen] = useState(false);
   const s = STATUS[status] || STATUS.warning;
   const RISK_ICONS = {
@@ -87,7 +87,7 @@ function RiskCard({ label, value, status, sub_text, index }) {
   };
 
   // NEW: VOLATILE display for saturated productivity model
-  const isVolatile = value === 'VOLATILE';
+  const isVolatile = saturation_status === 'CRITICAL_VOLATILITY' || value === 'VOLATILE';
 
   return (
     <div onClick={() => setOpen(o => !o)} style={{ background:'#fff', border:`1px solid ${open ? s.color : '#e5e7eb'}`, borderLeft:`4px solid ${isVolatile ? '#dc2626' : s.color}`, borderRadius:10, padding:'14px 16px', cursor:'pointer', transition:'all .2s', boxShadow: open ? `0 4px 14px ${s.color}22` : '0 1px 3px rgba(0,0,0,.05)' }}>
@@ -530,7 +530,7 @@ export default function ImpactAnalyzer({ sprints, spaceId, spaceMaxAssignees = 1
                 {METRICS.map(({ key, label, idx }) => {
                   const m = analysis.display[key];
                   if (!m) return null;
-                  return <RiskCard key={key} label={label} value={m.value} status={m.status} sub_text={m.sub_text} index={idx} />;
+                  return <RiskCard key={key} label={label} value={m.value} status={m.status} sub_text={m.sub_text} index={idx} saturation_status={m.saturation_status} />;
                 })}
               </div>
 

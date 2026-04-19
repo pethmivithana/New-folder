@@ -297,10 +297,12 @@ async def analyze_impact(body: AnalyzeRequest):
     # 3a. Productivity saturation guard — replaces the fabricated "-99% Drop"
     prod_raw = ml_result.get("productivity", {})
     raw_log_preds = prod_raw.get("_raw_log_predictions", [])  # list of raw log values from ensemble
+    saturation_status = "NORMAL"
     if raw_log_preds:
         max_raw = max(raw_log_preds)
         saturation = check_productivity_saturation(max_raw)
         if saturation["saturated"]:
+            saturation_status = "CRITICAL_VOLATILITY"
             # Override the display metric with VOLATILE state
             if "display" in ml_result and "productivity" in ml_result["display"]:
                 ml_result["display"]["productivity"].update({
@@ -308,6 +310,7 @@ async def analyze_impact(body: AnalyzeRequest):
                     "label":    "Model Saturated",
                     "status":   "critical",
                     "sub_text": saturation["sub_text"],
+                    "saturation_status": saturation_status,
                 })
 
     # 4. Phase 1 — Sprint alignment (if available from prior check)
@@ -368,6 +371,8 @@ async def analyze_impact(body: AnalyzeRequest):
             "risk_level":               risk_level_str,
             # Store resolved risk so history never re-derives with wrong thresholds
             "resolved_risk_level":      resolved_risk,
+            # NEW: Capture productivity model saturation status
+            "saturation_status":        saturation_status,
             "accepted":                 None,
             "taken_action":             None,
             "user_rating":              None,

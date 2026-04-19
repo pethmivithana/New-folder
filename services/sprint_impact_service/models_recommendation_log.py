@@ -109,6 +109,12 @@ class MLPredictions(BaseModel):
         ..., ge=0,
         description="Estimated team-days lost due to context switching"
     )
+    
+    # ── Productivity saturation guard ────────────────────────────────────────
+    saturation_status: str = Field(
+        default="NORMAL",
+        description="NORMAL when productivity is quantifiable; CRITICAL_VOLATILITY when model prediction exceeds safe bounds"
+    )
 
     # ── Overall risk score (derived in recommendation engine) ────────────────
     overall_risk_score: int = Field(
