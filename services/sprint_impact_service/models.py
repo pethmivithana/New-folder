@@ -43,6 +43,7 @@ class SpaceCreate(BaseModel):
     description: str
     max_assignees: int = Field(ge=1)
     focus_hours_per_day: float = Field(default=6.0, ge=1.0, le=24.0)
+    utilization_factor: float = Field(default=0.75, ge=0.5, le=1.0, description="Fraction of focus_hours_per_day actually utilized (0.75 = 75%)")
     risk_appetite: RiskAppetite = Field(default=RiskAppetite.STANDARD)
 
 class SpaceUpdate(BaseModel):
@@ -50,6 +51,7 @@ class SpaceUpdate(BaseModel):
     description: Optional[str] = None
     max_assignees: Optional[int] = Field(default=None, ge=1)
     focus_hours_per_day: Optional[float] = Field(default=None, ge=1.0, le=24.0)
+    utilization_factor: Optional[float] = Field(default=None, ge=0.5, le=1.0, description="Fraction of focus_hours_per_day actually utilized")
     risk_appetite: Optional[RiskAppetite] = None
 
 class Space(BaseModel):
@@ -58,6 +60,7 @@ class Space(BaseModel):
     description: str
     max_assignees: int
     focus_hours_per_day: float = 6.0
+    utilization_factor: float = 0.75
     risk_appetite: str = "Standard"
     created_at: datetime
     updated_at: datetime

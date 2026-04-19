@@ -42,11 +42,23 @@ const STATUS = {
 
 function CapacityBar({ used, total, hoursPerSP = 8.0 }) {
   const pct  = total > 0 ? Math.min(100, (used / total) * 100) : 0;
-  const col  = pct > 90 ? '#dc2626' : pct > 70 ? '#d97706' : '#059669';
+  const bufferThreshold = 80; // 80% utilization = entering stability buffer
+  
+  // Determine which segment the used capacity falls into
+  const usedInSafeZone = Math.min(used, (total * bufferThreshold) / 100);
+  const usedInBuffer = Math.max(0, used - usedInSafeZone);
+  
+  const safeZonePct = (usedInSafeZone / total) * 100;
+  const bufferPct = (usedInBuffer / total) * 100;
+  
   const free = Math.max(0, total - used);
   const usedHours  = Math.round(used  * hoursPerSP * 10) / 10;
   const totalHours = Math.round(total * hoursPerSP * 10) / 10;
   const freeHours  = Math.round(free  * hoursPerSP * 10) / 10;
+  
+  const isInBuffer = pct > bufferThreshold;
+  const isOverCapacity = pct > 100;
+  
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -56,8 +68,49 @@ function CapacityBar({ used, total, hoursPerSP = 8.0 }) {
           <span style={{ fontSize:10, color:'#9ca3af', fontStyle:'italic' }}>({usedHours} / {totalHours} hrs)</span>
         </div>
       </div>
-      <div style={{ height:8, background:'#e5e7eb', borderRadius:6, overflow:'hidden' }}>
-        <div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:6, transition:'width 0.9s cubic-bezier(.16,1,.3,1)' }} />
+      {/* NEW: Stacked progress bar showing safe zone (0-80%) and buffer zone (80-100%) */}
+      <div style={{ display:'flex', alignItems:'center', gap:3, marginBottom:8 }}>
+        <div style={{ height:10, flex:1, background:'#e5e7eb', borderRadius:6, overflow:'hidden', display:'flex' }}>
+          {/* Green safe zone (0-80%) */}
+          <div style={{
+            height:'100%',
+            width: `${Math.min(safeZonePct, 100)}%`,
+            background:'#10b981',
+            transition:'width 0.3s ease'
+          }} />
+          {/* Yellow buffer zone (80-100%) */}
+          {bufferPct > 0 && (
+            <div style={{
+              height:'100%',
+              width: `${Math.min(bufferPct, 20)}%`,
+              background:'#f59e0b',
+              transition:'width 0.3s ease'
+            }} />
+          )}
+          {/* Red overflow (>100%) */}
+          {isOverCapacity && (
+            <div style={{
+              height:'100%',
+              width:`${Math.min(pct - 100, 100)}%`,
+              background:'#dc2626',
+              transition:'width 0.3s ease'
+            }} />
+          )}
+        </div>
+        {isInBuffer && (
+          <div style={{
+            padding:'3px 8px',
+            background:'#fef3c7',
+            border:'1px solid #fcd34d',
+            borderRadius:4,
+            fontSize:10,
+            fontWeight:700,
+            color:'#92400e',
+            whiteSpace:'nowrap'
+          }}>
+            Entering Buffer
+          </div>
+        )}
       </div>
       <div style={{ display:'flex', justifyContent:'space-between', marginTop:5 }}>
         <span style={{ fontSize:11, color:'#9ca3af' }}>{Math.round(pct)}% used</span>

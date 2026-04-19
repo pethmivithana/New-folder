@@ -51,6 +51,14 @@ DEFAULT_BUFFER_RATIO = 0.20
 # Developer exit: minimum team size enforced at business logic level
 MIN_TEAM_SIZE = 2
 
+# Velocity floor: if no sprint history exists, assume 85% of planned capacity
+# (represents conservative estimation accounting for overhead)
+VELOCITY_FLOOR_FACTOR = 0.85
+
+# Default focus hours per day (when utilization_factor is not set on Space)
+DEFAULT_FOCUS_HOURS_PER_DAY = 6.0
+DEFAULT_UTILIZATION_FACTOR = 0.75
+
 
 # ── Shared result class ───────────────────────────────────────────────────────
 

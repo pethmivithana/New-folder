@@ -78,6 +78,47 @@ async def calculate_dynamic_focus_hours(space_id: str, fallback: float = 6.0) ->
         return fallback
 
 
+async def get_space_velocity_history(space_id: str) -> dict:
+    """
+    Calculate team velocity from past sprints (completed in last 90 days).
+    Returns: { 'avg_velocity': float, 'velocity_14d': float, 'count': int, 'fallback': bool }
+    """
+    try:
+        db = get_database()
+        from datetime import timedelta
+        cutoff_date = datetime.utcnow() - timedelta(days=90)
+        
+        completed_sprints = await db.sprints.find(
+            {"space_id": space_id, "status": "Completed", "updated_at": {"$gte": cutoff_date}}
+        ).sort("updated_at", DESCENDING).to_list(length=20)
+        
+        if not completed_sprints:
+            return {"avg_velocity": None, "velocity_14d": None, "count": 0, "fallback": True}
+        
+        velocities = []
+        for sprint in completed_sprints:
+            sprint_id_str = str(sprint["_id"])
+            completed_items = await db.backlog_items.find(
+                {"sprint_id": sprint_id_str, "status": "Done"}
+            ).to_list(length=None)
+            velocity = sum(item.get("story_points", 0) for item in completed_items)
+            velocities.append(velocity)
+        
+        avg_velocity = sum(velocities) / len(velocities) if velocities else None
+        # Most recent 2 sprints (~14 days)
+        velocity_14d = sum(velocities[:2]) / 2 if len(velocities) >= 2 else avg_velocity
+        
+        return {
+            "avg_velocity": round(avg_velocity, 1) if avg_velocity else None,
+            "velocity_14d": round(velocity_14d, 1) if velocity_14d else None,
+            "count": len(velocities),
+            "fallback": False
+        }
+    except Exception as e:
+        print(f"Error calculating velocity history: {e}")
+        return {"avg_velocity": None, "velocity_14d": None, "count": 0, "fallback": True}
+
+
 class AnalyzeRequest(BaseModel):
     sprint_id:    str
     title:        str = Field(..., min_length=1, max_length=300)
