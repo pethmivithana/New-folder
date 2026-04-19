@@ -325,23 +325,24 @@ function VelocityChart({ data }) {
                       ],
                     });
                   }}>
-                <rect x={bx} y={by} width={barW} height={bh} rx="5" fill="url(#vbG)" opacity=".92" />
-                {bh > 20 && (
-                  <text x={bx + barW / 2} y={by - 4} textAnchor="middle" fontSize="10" fontWeight="600" fill={C.indigo}>
-                    {b.completed_points}
-                  </text>
-                )}
-                <text x={bx + barW / 2} y={ch + 16} textAnchor="middle" fontSize="10" fill={C.muted}>{lbl}</text>
-              </g>
-            );
-          })}
-          {yTks.map(v => <text key={v} x={-8} y={ySc(v) + 4} textAnchor="end" fontSize="10" fill={C.muted}>{v}</text>)}
-        </g>
-      </svg>
-      <Legend items={[
-        { color: C.indigo, label: 'Completed SP' },
-        ...(avg > 0 ? [{ color: C.amber, label: `Avg (${avg} SP)`, dash: true }] : []),
-      ]} />
+                  <rect x={bx} y={by} width={barW} height={bh} rx="5" fill="url(#vbG)" opacity=".92" />
+                  {bh > 20 && (
+                    <text x={bx + barW / 2} y={by - 4} textAnchor="middle" fontSize="10" fontWeight="600" fill={C.indigo}>
+                      {b.completed_points}
+                    </text>
+                  )}
+                  <text x={bx + barW / 2} y={ch + 16} textAnchor="middle" fontSize="10" fill={C.muted}>{lbl}</text>
+                </g>
+              );
+            })}
+            {yTks.map(v => <text key={v} x={-8} y={ySc(v) + 4} textAnchor="end" fontSize="10" fill={C.muted}>{v}</text>)}
+          </g>
+        </svg>
+        <Legend items={[
+          { color: C.indigo, label: 'Completed SP' },
+          ...(avg > 0 ? [{ color: C.amber, label: `Avg (${avg} SP)`, dash: true }] : []),
+        ]} />
+      </div>
     </div>
   );
 }
