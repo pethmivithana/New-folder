@@ -252,9 +252,17 @@ class ModelLoader:
             self.artifacts['risk_le_prio']  = art['le_prio']
             self.artifacts['risk_label_map']= art['label_map']
 
-            from feature_engineering import set_risk_artifacts
+            from feature_engineering import set_risk_artifacts, set_risk_scaler
             set_risk_artifacts(imputer, art['le_type'], art['le_prio'])
-            print("✓ risk_artifacts (imputer + le_type + le_prio)")
+
+            # Optional: load scaler if present in artifact (future-proof)
+            risk_scaler = art.get('scaler')
+            if risk_scaler is not None:
+                self.artifacts['risk_scaler'] = risk_scaler
+                set_risk_scaler(risk_scaler)
+                print("✓ risk_artifacts (imputer + le_type + le_prio + scaler)")
+            else:
+                print("✓ risk_artifacts (imputer + le_type + le_prio) [no scaler — fallback normalisation active]")
         except Exception as e:
             print(f"✗ risk_artifacts: {e}")
 

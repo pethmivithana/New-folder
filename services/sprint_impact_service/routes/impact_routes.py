@@ -5,7 +5,7 @@ from datetime import datetime
 from bson import ObjectId
 from pymongo import DESCENDING
 
-from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint
+from database import get_database, get_sprint_by_id, get_backlog_items_by_sprint, check_sprint_capacity_status
 from impact_predictor import impact_predictor
 from decision_engine import (
     calculate_agile_recommendation,
@@ -13,6 +13,7 @@ from decision_engine import (
 )
 from explanation_generator import explanation_generator
 from input_validation import validate_requirement
+from sp_suggester import suggest_story_points, is_valid_fibonacci, get_nearest_fibonacci
 # DeveloperExitRequest defined locally below
 
 router = APIRouter()
@@ -530,3 +531,313 @@ async def record_feedback(log_id: str, body: FeedbackRequest):
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Log entry not found.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STORY POINT SUGGESTION ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class StoryPointSuggestionRequest(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    space_id: str
+
+
+class StoryPointValidationRequest(BaseModel):
+    story_points: int
+
+
+@router.post("/suggest-story-points")
+async def suggest_story_points_endpoint(request: StoryPointSuggestionRequest):
+    """
+    Suggest story points for a requirement using AI similarity matching + complexity heuristics.
+    
+    Returns: {
+      "suggested_sp": 5,
+      "confidence": 0.75,
+      "reasoning": "...",
+      "historical_match": {...}  or null
+    }
+    """
+    try:
+        if not request.title or len(request.title.strip()) < 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Title must be at least 3 characters long."
+            )
+        
+        suggestion = await suggest_story_points(
+            space_id=request.space_id,
+            requirement_title=request.title,
+            requirement_description=request.description or ""
+        )
+        
+        return suggestion
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Story point suggestion error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/validate-story-points")
+async def validate_story_points_endpoint(request: StoryPointValidationRequest):
+    """
+    Validate story points and suggest nearest Fibonacci number if invalid.
+    
+    Fibonacci sequence: 1, 2, 3, 5, 8, 13, 21
+    
+    Returns: {
+      "is_valid": true/false,
+      "value": <validated SP>,
+      "message": "..."
+    }
+    """
+    try:
+        sp = request.story_points
+        
+        if sp < 1 or sp > 21:
+            nearest = get_nearest_fibonacci(sp)
+            return {
+                "is_valid": False,
+                "value": nearest,
+                "message": f"Story points must be between 1 and 21. Closest Fibonacci number: {nearest}."
+            }
+        
+        if is_valid_fibonacci(sp):
+            return {
+                "is_valid": True,
+                "value": sp,
+                "message": f"{sp} is a valid Fibonacci story point."
+            }
+        else:
+            nearest = get_nearest_fibonacci(sp)
+            return {
+                "is_valid": False,
+                "value": nearest,
+                "message": f"{sp} is not a valid Fibonacci number. Nearest valid: {nearest}. Valid values: 1, 2, 3, 5, 8, 13, 21."
+            }
+    
+    except Exception as e:
+        print(f"Story point validation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SPRINT CAPACITY ENFORCEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AddItemToSprintRequest(BaseModel):
+    sprint_id: str
+    backlog_item_id: str
+    story_points: int
+
+
+@router.get("/sprints/{sprint_id}/capacity-status")
+async def get_capacity_status(sprint_id: str):
+    """
+    Get current sprint capacity status and recommendations.
+    
+    Returns capacity metrics with status flags:
+      - HEALTHY: < 80% (safe to add items)
+      - CAUTION: 80-99% (warning, but user can proceed if desired)
+      - CRITICAL: >= 100% (block additions, must remove items first)
+    """
+    try:
+        status = await check_sprint_capacity_status(sprint_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Sprint not found.")
+        
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Capacity status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/validate-add-to-sprint")
+async def validate_add_to_sprint(request: AddItemToSprintRequest):
+    """
+    Pre-flight check before adding item to sprint.
+    
+    Returns:
+      {
+        "can_add": true/false,
+        "new_capacity_percentage": 85.0,
+        "status": "CAUTION",  # HEALTHY, CAUTION, CRITICAL
+        "message": "Sprint at 85% capacity. Safe limit is 80% (12.8 SP). You can proceed but team may be overloaded."
+      }
+    """
+    try:
+        status = await check_sprint_capacity_status(request.sprint_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Sprint not found.")
+        
+        # Calculate what capacity would be after adding this item
+        new_load = status["current_load_sp"] + request.story_points
+        new_percentage = (new_load / status["team_capacity_sp"] * 100) if status["team_capacity_sp"] > 0 else 0
+        
+        # Determine if we allow it
+        can_add = new_percentage < 100.0  # Always block if >= 100%
+        
+        # Determine new status
+        if new_percentage >= 100:
+            new_status = "CRITICAL"
+            message = f"Cannot add {request.story_points} SP. Sprint would exceed 100% capacity ({new_percentage:.1f}%). Currently at {status['capacity_percentage']:.1f}%. Remove items first."
+        elif new_percentage >= 80:
+            new_status = "CAUTION"
+            message = f"Adding {request.story_points} SP would put sprint at {new_percentage:.1f}% capacity. Safe limit is 80% ({status['safe_limit_80_sp']} SP). Proceed with caution."
+        else:
+            new_status = "HEALTHY"
+            message = f"OK to add {request.story_points} SP. Sprint will be at {new_percentage:.1f}% capacity."
+        
+        return {
+            "can_add": can_add,
+            "new_capacity_percentage": round(new_percentage, 1),
+            "status": new_status,
+            "message": message,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Add-to-sprint validation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# IMPACT ACTION HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sprints/{sprint_id}/impact-history")
+async def get_impact_action_history(sprint_id: str):
+    """
+    Get history of all impact analyses and actions taken for a sprint.
+    
+    Returns list of:
+      {
+        "id": "log_id",
+        "requirement_title": "Add dark mode",
+        "recommended_action": "ADD",  # ADD, DEFER, SPLIT, SWAP
+        "user_action_taken": "ADD" or null,  # null if no action taken
+        "taken_at": "2024-01-15T10:30:00",
+        "alignment_state": "STRONGLY_ALIGNED",
+        "impact_summary": {
+          "effort": { "value": 0.75, "status": "GOOD" },
+          "schedule_risk": { "value": 0.3, "status": "ACCEPTABLE" },
+          "quality_risk": { "value": 0.2, "status": "GOOD" },
+          "productivity": { "value": 0.8, "status": "GOOD" }
+        }
+      }
+    
+    Shows only requirements that had actions taken (taken_action is not null).
+    If no actions taken, shows as-is without them.
+    """
+    try:
+        db = get_database()
+        
+        if not ObjectId.is_valid(sprint_id):
+            raise HTTPException(status_code=400, detail="Invalid sprint ID")
+        
+        sprint = await db.sprints.find_one({"_id": ObjectId(sprint_id)})
+        if not sprint:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+        
+        # Fetch all impact analyses for this sprint
+        history = []
+        async for log in db.recommendation_logs.find(
+            {"sprint_id": sprint_id}
+        ).sort("created_at", -1):
+            
+            entry = {
+                "id": str(log["_id"]),
+                "requirement_title": log.get("requirement_title", "Unknown"),
+                "recommended_action": log.get("recommendation", "UNKNOWN"),
+                "user_action_taken": log.get("taken_action"),  # null if not taken
+                "taken_at": log.get("updated_at") or log.get("created_at"),
+                "alignment_state": log.get("alignment_state", "UNKNOWN"),
+                "impact_summary": log.get("impact_metrics", {}),
+                "user_notes": log.get("user_comment"),  # Optional: user added notes
+            }
+            history.append(entry)
+        
+        return {
+            "sprint_id": sprint_id,
+            "total_analyses": len(history),
+            "actions_taken": sum(1 for h in history if h["user_action_taken"] is not None),
+            "history": history,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Impact history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/spaces/{space_id}/impact-history")
+async def get_space_impact_history(space_id: str, limit: int = 50):
+    """
+    Get impact action history across ALL sprints in a space.
+    Useful for trend analysis and retrospectives.
+    
+    Returns:
+      {
+        "space_id": space_id,
+        "total_analyses": 45,
+        "actions_by_type": { "ADD": 20, "DEFER": 15, "SPLIT": 8, "SWAP": 2 },
+        "history": [...]
+      }
+    """
+    try:
+        db = get_database()
+        
+        if not ObjectId.is_valid(space_id):
+            raise HTTPException(status_code=400, detail="Invalid space ID")
+        
+        space = await db.spaces.find_one({"_id": ObjectId(space_id)})
+        if not space:
+            raise HTTPException(status_code=404, detail="Space not found")
+        
+        # Get all sprints in this space
+        sprint_ids = []
+        async for sprint in db.sprints.find({"space_id": space_id}):
+            sprint_ids.append(str(sprint["_id"]))
+        
+        # Fetch all impact analyses for all sprints
+        history = []
+        action_counts = {"ADD": 0, "DEFER": 0, "SPLIT": 0, "SWAP": 0}
+        
+        async for log in db.recommendation_logs.find(
+            {"sprint_id": {"$in": sprint_ids}}
+        ).sort("created_at", -1).limit(limit):
+            
+            action_taken = log.get("taken_action")
+            if action_taken and action_taken in action_counts:
+                action_counts[action_taken] += 1
+            
+            entry = {
+                "id": str(log["_id"]),
+                "sprint_id": log.get("sprint_id"),
+                "requirement_title": log.get("requirement_title", "Unknown"),
+                "recommended_action": log.get("recommendation"),
+                "user_action_taken": action_taken,
+                "taken_at": log.get("updated_at") or log.get("created_at"),
+                "alignment_state": log.get("alignment_state"),
+            }
+            history.append(entry)
+        
+        return {
+            "space_id": space_id,
+            "total_analyses": len(history),
+            "actions_by_type": action_counts,
+            "history": history,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Space impact history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

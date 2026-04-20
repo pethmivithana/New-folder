@@ -7,7 +7,7 @@ from models import (
     SprintStartRequest, SprintFinishRequest, AddAssigneeRequest,
     Status, DurationType,
 )
-from database import get_database
+from database import get_database, calculate_sprint_capacity
 
 router = APIRouter()
 
@@ -42,19 +42,19 @@ def sprint_helper(sprint) -> dict:
         return None
 
     return {
-        "id":             str(sprint["_id"]),
-        "name":           sprint["name"],
-        "goal":           sprint["goal"],
-        "duration_type":  sprint["duration_type"],
-        "start_date":     format_date(sprint.get("start_date")),
-        "end_date":       format_date(sprint.get("end_date")),
-        "space_id":       sprint["space_id"],
-        "status":         sprint["status"],
-        "assignees":      sprint.get("assignees", []),
-        # NEW: return assignee_count alongside the raw assignee list
-        "assignee_count": sprint.get("assignee_count", 2),
-        "created_at":     sprint["created_at"],
-        "updated_at":     sprint["updated_at"],
+        "id":                str(sprint["_id"]),
+        "name":              sprint["name"],
+        "goal":              sprint["goal"],
+        "duration_type":     sprint["duration_type"],
+        "start_date":        format_date(sprint.get("start_date")),
+        "end_date":          format_date(sprint.get("end_date")),
+        "space_id":          sprint["space_id"],
+        "status":            sprint["status"],
+        "assignees":         sprint.get("assignees", []),
+        "assignee_count":    sprint.get("assignee_count", 2),
+        "team_capacity_sp":  sprint.get("team_capacity_sp", 16),  # NEW: auto-calculated capacity
+        "created_at":        sprint["created_at"],
+        "updated_at":        sprint["updated_at"],
     }
 
 
@@ -115,12 +115,20 @@ async def create_sprint(sprint: SprintCreate):
         sprint.duration_type, sprint.start_date, sprint.end_date
     )
 
+    # Calculate sprint capacity based on historical performance
+    team_capacity_sp = await calculate_sprint_capacity(
+        space_id=sprint.space_id,
+        new_assignee_count=sprint.assignee_count,
+        base_sp_per_assignee=8,
+    )
+
     sprint_dict = sprint.dict()
     sprint_dict["start_date"]     = start_date.strftime('%Y-%m-%d') if isinstance(start_date, datetime) else start_date
     sprint_dict["end_date"]       = end_date.strftime('%Y-%m-%d')   if isinstance(end_date,   datetime) else end_date
     sprint_dict["status"]         = SprintStatus.PLANNED
     sprint_dict["assignees"]      = []
     sprint_dict["assignee_count"] = sprint.assignee_count  # store planning headcount
+    sprint_dict["team_capacity_sp"] = team_capacity_sp  # NEW: auto-calculated capacity
     sprint_dict["created_at"]     = datetime.utcnow()
     sprint_dict["updated_at"]     = datetime.utcnow()
 

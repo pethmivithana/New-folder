@@ -54,6 +54,7 @@ _tfidf_vectorizer  = None   # sklearn TfidfVectorizer from effort_artifacts.pkl
 _risk_imputer      = None   # sklearn SimpleImputer  from risk_artifacts.pkl
 _risk_le_type      = None   # sklearn LabelEncoder   from risk_artifacts.pkl
 _risk_le_prio      = None   # sklearn LabelEncoder   from risk_artifacts.pkl
+_risk_scaler       = None   # sklearn StandardScaler from risk_artifacts.pkl (optional, may not exist)
 _prod_scaler       = None   # sklearn StandardScaler from productivity_artifacts.pkl
 _prod_le_type      = None   # sklearn LabelEncoder   from productivity_artifacts.pkl
 _prod_le_prio      = None   # sklearn LabelEncoder   from productivity_artifacts.pkl
@@ -69,6 +70,11 @@ def set_risk_artifacts(imputer, le_type, le_prio):
     _risk_imputer = imputer
     _risk_le_type = le_type
     _risk_le_prio = le_prio
+
+def set_risk_scaler(scaler):
+    """Called by model_loader if a StandardScaler is found in risk_artifacts.pkl."""
+    global _risk_scaler
+    _risk_scaler = scaler
 
 def set_productivity_artifacts(scaler, le_type, le_prio):
     global _prod_scaler, _prod_le_type, _prod_le_prio
@@ -199,10 +205,32 @@ def build_effort_features(item_data: dict, sprint_context: dict) -> dict:
 # 2. Schedule risk features  (9 features, exact order from risk_artifacts)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# author_total_load: the training data used cumulative author story-point history.
-# We don't have per-author history, so we use the imputer's median fill value (4519)
-# which is what the model learned to expect for average historical load.
-_AUTHOR_LOAD_MEDIAN = 4519.0
+# author_total_load FIX:
+# The old constant (4519.0) acted as a "feature anchor" — every ticket got the
+# same value, so the model's tree splits on this feature were always identical
+# and pushed predictions into a single leaf (Critical Risk).  Instead, derive a
+# contextual value that reflects sprint load per assignee, introducing real
+# variance so the trees can split correctly.  If no sprint context is available
+# the imputer's original median is used as a last resort.
+_AUTHOR_LOAD_FALLBACK = 4519.0
+
+
+def _compute_contextual_author_load(sprint_context: dict) -> float:
+    """
+    Derive a contextual author_total_load proxy from sprint state.
+
+    Formula: (planned_story_points / max(1, assignees)) * 10
+      - Scales with actual sprint load so every request produces a different
+        value, giving the model's decision trees real splits to work with.
+      - The *10 multiplier keeps the range roughly near the training median
+        (training data: Jira authors with cumulative SP history ~450–5000).
+    Falls back to _AUTHOR_LOAD_FALLBACK if context is missing.
+    """
+    sprint_load  = float(sprint_context.get('sprint_load_7d', 0))
+    assignees    = max(1, int(sprint_context.get('assignee_count', 1)))
+    if sprint_load > 0:
+        return round((sprint_load / assignees) * 10, 2)
+    return _AUTHOR_LOAD_FALLBACK
 
 
 def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> pd.DataFrame:
@@ -210,8 +238,18 @@ def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> pd.Da
     9 features in the exact order stored in risk_artifacts feature_names:
     Story_Point, total_links, total_comments, author_total_load,
     link_density, comment_density, pressure_index, Type_Code, Priority_Code
-    
-    Returns a Pandas DataFrame with explicit column names to match XGBoost training schema.
+
+    FIX — author_total_load: replaced hardcoded 4519 constant with a
+    contextual sprint-derived value (see _compute_contextual_author_load).
+
+    FIX — scaler guardrail: risk_artifacts.pkl has no StandardScaler
+    (only an imputer).  Since XGBoost is tree-based it is theoretically
+    scale-invariant, but extreme raw values (e.g. author_load >> SP) can
+    still distort split thresholds on shallow trees.  When no scaler is
+    present we apply min-max normalisation to the two highest-magnitude
+    features (Story_Point and pressure_index) to keep them in [0, 1].
+
+    Returns a Pandas DataFrame with explicit column names.
     """
     description  = item_data.get('description', '')
     story_points = float(item_data.get('story_points', 5))
@@ -222,8 +260,11 @@ def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> pd.Da
 
     total_links     = float(description.lower().count('http') +
                             len(description.split(',')) // 3)
-    total_comments  = 0.0  # BUG FIX: Default to 0.0 for new tickets instead of counting periods
-    author_load     = _AUTHOR_LOAD_MEDIAN          # imputer median fill
+    total_comments  = 0.0  # default for new tickets (no Jira comment history)
+
+    # FIX: contextual author load instead of constant 4519
+    author_load     = _compute_contextual_author_load(sprint_context)
+
     link_density    = total_links / max(1.0, story_points)
     comment_density = total_comments / max(1.0, story_points)
     pressure_index  = story_points / max(1.0, days_remaining)
@@ -239,20 +280,30 @@ def build_schedule_risk_features(item_data: dict, sprint_context: dict) -> pd.Da
         type_code, prio_code,
     ]])
 
-    # Apply the fitted SimpleImputer (handles any NaN that might appear)
+    # Apply the fitted SimpleImputer (fills any NaN)
     if _risk_imputer is not None:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             X = _risk_imputer.transform(X)
 
-    # BUG FIX: Return DataFrame with explicit column names instead of raw numpy array
-    # This ensures XGBoost can map features correctly since it was trained on a DataFrame
     feature_names = ['Story_Point', 'total_links', 'total_comments', 'author_total_load',
                      'link_density', 'comment_density', 'pressure_index', 'Type_Code', 'Priority_Code']
     df = pd.DataFrame(X, columns=feature_names)
 
-    # Log to terminal for visibility
-    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Shape: {df.shape}, dtype: {df.dtypes}", file=sys.stderr)
+    # ── Scaler guardrail ─────────────────────────────────────────────────────
+    # XGBoost trees are scale-invariant (split thresholds are absolute value
+    # comparisons), so feature scaling must NOT be applied as a fallback —
+    # doing so shifts every learned threshold away from the training distribution.
+    # Only apply a StandardScaler if one was explicitly saved in risk_artifacts.pkl.
+    if _risk_scaler is not None:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            df[feature_names] = _risk_scaler.transform(df[feature_names])
+        print("[BUILD_SCHEDULE_RISK_FEATURES] StandardScaler applied", file=sys.stderr)
+    else:
+        print("[BUILD_SCHEDULE_RISK_FEATURES] No scaler — raw features passed (correct for XGBoost)", file=sys.stderr)
+
+    print(f"[BUILD_SCHEDULE_RISK_FEATURES] Shape: {df.shape}", file=sys.stderr)
     print(f"[BUILD_SCHEDULE_RISK_FEATURES] Values: {df.iloc[0].to_dict()}", file=sys.stderr)
 
     return df

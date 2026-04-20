@@ -103,6 +103,10 @@ class Sprint(BaseModel):
     # NEW: stored separately from the assignee number list.
     # assignee_count is the planning headcount (drives capacity math).
     assignee_count: int = 2
+    # NEW: Auto-calculated sprint capacity in story points (80% safe limit shown to user)
+    # User can use up to 100% if they choose (at their own risk)
+    team_capacity_sp: int = 16
+    # Velocity from previous sprint (used for recommendations)
     historical_pace: float = 1.0
     created_at: datetime
     updated_at: datetime

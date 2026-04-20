@@ -6,7 +6,6 @@ import KanbanBoard from './KanbanBoard';
 import FinishSprintModal from './FinishSprintModal';
 import ImpactAnalyzer from './ImpactAnalyzer';
 import AnalyticsDashboard from './AnalyticsDashboard';
-import Settings from './Settings';
 
 export default function Dashboard({ space, onBack }) {
   const [sprints, setSprints] = useState([]);
@@ -206,7 +205,7 @@ export default function Dashboard({ space, onBack }) {
           </div>
 
           <div className="flex gap-6 mt-4 border-b border-gray-200">
-            {['scrums', 'impact-analyzer', 'analytics', 'settings'].map(tab => (
+            {['scrums', 'impact-analyzer', 'analytics'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -214,7 +213,7 @@ export default function Dashboard({ space, onBack }) {
                   activeTab === tab ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-600 hover:text-gray-800'
                 }`}
               >
-                {tab === 'scrums' ? 'Scrums' : tab === 'impact-analyzer' ? 'Impact Analyzer' : tab === 'analytics' ? 'Analytics' : 'Settings'}
+                {tab === 'scrums' ? 'Scrums' : tab === 'impact-analyzer' ? 'Impact Analyzer' : 'Analytics'}
               </button>
             ))}
           </div>
@@ -383,7 +382,6 @@ export default function Dashboard({ space, onBack }) {
 
         {!loading && activeTab === 'impact-analyzer' && <ImpactAnalyzer sprints={sprints} spaceId={space?.id} onActionDone={handleImpactActionDone} />}
         {!loading && activeTab === 'analytics' && <AnalyticsDashboard space={space} />}
-        {!loading && activeTab === 'settings' && <Settings />}
       </div>
 
       {showSprintModal && (

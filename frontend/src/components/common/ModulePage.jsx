@@ -1,6 +1,5 @@
 import React from "react";
 import RequirementTrackerModule from "../../components/features/sprint_impact_service/RequirementTrackerModule";
-import Settings from "../../components/features/sprint_impact_service/Settings";
 
 export default function ModulePage({ module }) {
   if (!module) return null;
@@ -8,9 +7,6 @@ export default function ModulePage({ module }) {
   switch (module.id) {
     case "requirement-tracker":
       return <RequirementTrackerModule />; // loads backlog by default
-
-    case "settings":
-      return <Settings />;
 
     case "emotion-monitoring":
       return (
