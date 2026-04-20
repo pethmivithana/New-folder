@@ -1,418 +1,318 @@
-import { useState } from 'react';
-import { Save, Info, AlertCircle, Settings as SettingsIcon } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Save, Info, AlertCircle, Settings as SettingsIcon, Loader2, Sparkles, Sliders, ShieldAlert, CheckCircle } from 'lucide-react';
+import api from './api';
 
 export default function Settings() {
-  // ═══════════════════════════════════════════════════════════════════════════
-  // STATE: Configuration settings for AI, Rules, and General Agile settings
-  // ═══════════════════════════════════════════════════════════════════════════
+  const [space, setSpace] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Tab 1: General (Standard Agile)
-  const [sprintDuration, setSprintDuration] = useState('2');
-  const [workingHoursPerDay, setWorkingHoursPerDay] = useState('8');
-  const [velocityWindow, setVelocityWindow] = useState('last-3-sprints');
+  // Form State
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    max_assignees: 5,
+    focus_hours_per_day: 6.0,
+    risk_appetite: 'Standard',
+  });
 
-  // Tab 2: AI Tuning (Machine Learning)
-  const [qualityRiskSensitivity, setQualityRiskSensitivity] = useState(40);
-  const [sprintGoalStrictness, setSprintGoalStrictness] = useState(0.7);
-  const [enableMLPredictions, setEnableMLPredictions] = useState(true);
-  const [strictGibberishFilter, setStrictGibberishFilter] = useState(true);
+  useEffect(() => {
+    fetchSpace();
+  }, []);
 
-  // Tab 3: Rule Engine (Decision Making)
-  const [autoAnalyzeOnDragDrop, setAutoAnalyzeOnDragDrop] = useState(true);
-  const [sprintBufferCapacity, setSprintBufferCapacity] = useState(15);
-  const [defaultOverloadResolution, setDefaultOverloadResolution] = useState('prefer-swap');
-
-  // Tab 4: Advanced
-  const [modelFallbackBehavior, setModelFallbackBehavior] = useState('rule-based');
-
-  // UI State
-  const [activeTab, setActiveTab] = useState('general');
-  const [saveStatus, setSaveStatus] = useState('');
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EVENT HANDLERS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const handleSaveConfiguration = async () => {
-    const payload = {
-      general: {
-        sprintDuration: parseInt(sprintDuration),
-        workingHoursPerDay: parseInt(workingHoursPerDay),
-        velocityWindow,
-      },
-      aiTuning: {
-        qualityRiskSensitivity,
-        sprintGoalStrictness,
-        enableMLPredictions,
-        strictGibberishFilter,
-      },
-      ruleEngine: {
-        autoAnalyzeOnDragDrop,
-        sprintBufferCapacity,
-        defaultOverloadResolution,
-      },
-      advanced: {
-        modelFallbackBehavior,
-      },
-    };
-
-    console.log('Configuration Payload:', JSON.stringify(payload, null, 2));
-    setSaveStatus('Saved!');
-    setTimeout(() => setSaveStatus(''), 2000);
-
-    // TODO: Send to backend API
-    // await api.saveConfiguration(payload);
+  const fetchSpace = async () => {
+    try {
+      setLoading(true);
+      const spaces = await api.getSpaces();
+      if (spaces && spaces.length > 0) {
+        const currentSpace = spaces[0];
+        setSpace(currentSpace);
+        setFormData({
+          name: currentSpace.name || '',
+          description: currentSpace.description || '',
+          max_assignees: currentSpace.max_assignees || 5,
+          focus_hours_per_day: currentSpace.focus_hours_per_day || 6.0,
+          risk_appetite: currentSpace.risk_appetite || 'Standard',
+        });
+      } else {
+        setError("No space found. Please create a space first.");
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // UI COMPONENTS: Tab Navigation & Helper Components
-  // ═══════════════════════════════════════════════════════════════════════════
+  const handleSave = async () => {
+    if (!space) return;
+    try {
+      setSaving(true);
+      setError(null);
+      await api.updateSpace(space.id, {
+        name: formData.name,
+        description: formData.description,
+        max_assignees: parseInt(formData.max_assignees),
+        focus_hours_per_day: parseFloat(formData.focus_hours_per_day),
+        risk_appetite: formData.risk_appetite,
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const TabButton = ({ id, label, isActive }) => (
-    <button
-      onClick={() => setActiveTab(id)}
-      className={`px-4 py-2 font-medium transition-colors border-b-2 ${
-        isActive
-          ? 'border-indigo-600 text-indigo-600'
-          : 'border-transparent text-gray-600 hover:text-gray-800'
-      }`}
-    >
-      {label}
-    </button>
-  );
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
-  const SettingRow = ({ label, description, children }) => (
-    <div className="py-4 border-b border-gray-200 last:border-b-0">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <label className="block text-sm font-medium text-gray-900">{label}</label>
-          {description && <p className="mt-1 text-sm text-gray-600">{description}</p>}
-        </div>
-        <div className="ml-6 flex-shrink-0">{children}</div>
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
       </div>
-    </div>
-  );
+    );
+  }
 
-  const HelpBox = ({ text }) => (
-    <div className="mt-4 flex gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-      <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-      <p className="text-sm text-blue-700">{text}</p>
-    </div>
-  );
-
-  const WarningBox = ({ text }) => (
-    <div className="mt-4 flex gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-      <p className="text-sm text-amber-700">{text}</p>
-    </div>
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TAB 1: GENERAL (Standard Agile Settings)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const GeneralTab = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">Standard Agile Configuration</h3>
-
-      <SettingRow
-        label="Default Sprint Duration"
-        description="How long each sprint typically lasts in your team."
-      >
-        <select
-          value={sprintDuration}
-          onChange={(e) => setSprintDuration(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="1">1 Week</option>
-          <option value="2">2 Weeks</option>
-          <option value="3">3 Weeks</option>
-          <option value="4">4 Weeks</option>
-        </select>
-      </SettingRow>
-
-      <SettingRow
-        label="Working Hours per Day"
-        description="Billable hours excluding meetings, admin, and breaks."
-      >
-        <input
-          type="number"
-          min="4"
-          max="10"
-          value={workingHoursPerDay}
-          onChange={(e) => setWorkingHoursPerDay(e.target.value)}
-          className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-      </SettingRow>
-      <HelpBox text="Typical values: 6-8 hours for most teams. Account for meetings, Slack time, and admin tasks." />
-
-      <SettingRow
-        label="Velocity Calculation Window"
-        description="How many past sprints to use for velocity averaging."
-      >
-        <select
-          value={velocityWindow}
-          onChange={(e) => setVelocityWindow(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="last-3-sprints">Last 3 Sprints</option>
-          <option value="last-5-sprints">Last 5 Sprints</option>
-          <option value="all-time">All-time Average</option>
-        </select>
-      </SettingRow>
-      <HelpBox text="Use 3-5 sprints for stable teams. Use all-time for long-running projects to capture trends." />
-    </div>
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TAB 2: AI TUNING (Machine Learning Configuration)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const AITuningTab = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">Machine Learning & AI Tuning</h3>
-      <p className="text-sm text-gray-600">Fine-tune the ML models to match your team's culture and risk tolerance.</p>
-
-      <SettingRow
-        label="Quality Risk Sensitivity"
-        description="Alert threshold for defect probability. Lower = more strict."
-      >
-        <div className="w-48">
-          <div className="flex items-center gap-3">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={qualityRiskSensitivity}
-              onChange={(e) => setQualityRiskSensitivity(parseInt(e.target.value))}
-              className="w-full accent-indigo-600"
-            />
-            <span className="text-sm font-medium text-gray-900 w-12">{qualityRiskSensitivity}%</span>
-          </div>
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="bg-red-50 border border-red-200 p-6 rounded-2xl max-w-md text-center shadow-lg">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Failed to load settings</h2>
+          <p className="text-red-700">{error}</p>
         </div>
-      </SettingRow>
-      <HelpBox text={`Alert me if quality defect probability exceeds ${qualityRiskSensitivity}%. Lower values = stricter quality gates.`} />
-
-      <SettingRow
-        label="Sprint Goal Strictness"
-        description="TF-IDF cosine similarity threshold for sprint goal alignment."
-      >
-        <div className="w-48">
-          <div className="flex items-center gap-3">
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={sprintGoalStrictness}
-              onChange={(e) => setSprintGoalStrictness(parseFloat(e.target.value))}
-              className="w-full accent-indigo-600"
-            />
-            <span className="text-sm font-medium text-gray-900 w-12">{sprintGoalStrictness.toFixed(1)}</span>
-          </div>
-        </div>
-      </SettingRow>
-      <HelpBox text={`Current threshold: ${sprintGoalStrictness}. Items below this similarity score are flagged as off-goal.`} />
-
-      <div className="border-t border-gray-200 pt-6">
-        <SettingRow
-          label="Enable ML Predictions"
-          description="Use machine learning models for effort, schedule, and quality predictions."
-        >
-          <button
-            onClick={() => setEnableMLPredictions(!enableMLPredictions)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              enableMLPredictions ? 'bg-indigo-600' : 'bg-gray-300'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                enableMLPredictions ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </SettingRow>
       </div>
+    );
+  }
 
-      {enableMLPredictions && <HelpBox text="XGBoost models are active for effort/schedule. PyTorch TabNet is active for quality risk." />}
+  const appetiteColors = {
+    Strict: 'bg-rose-50 border-rose-200 shadow-[0_0_15px_rgba(244,63,94,0.15)]',
+    Standard: 'bg-indigo-50 border-indigo-200 shadow-[0_0_15px_rgba(99,102,241,0.15)]',
+    Lenient: 'bg-emerald-50 border-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.15)]',
+  };
 
-      <SettingRow
-        label="Strict Agile Formatting & Gibberish Filter"
-        description="Reject tickets with keyboard smash, poor descriptions, or invalid format."
-      >
-        <button
-          onClick={() => setStrictGibberishFilter(!strictGibberishFilter)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            strictGibberishFilter ? 'bg-indigo-600' : 'bg-gray-300'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              strictGibberishFilter ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
-      </SettingRow>
-      <WarningBox text="When enabled, inputs like 'asdfghjkl' or 'aaaa bbb' will be rejected. Helps save server resources." />
-    </div>
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TAB 3: RULE ENGINE (Decision Making Rules)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const RuleEngineTab = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">Rule Engine & Decision Making</h3>
-      <p className="text-sm text-gray-600">Configure how the system makes automatic sprint planning decisions.</p>
-
-      <SettingRow
-        label="Auto-Analyze on Drag-and-Drop"
-        description="Automatically run impact analysis when items are moved between sprints or statuses."
-      >
-        <button
-          onClick={() => setAutoAnalyzeOnDragDrop(!autoAnalyzeOnDragDrop)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            autoAnalyzeOnDragDrop ? 'bg-indigo-600' : 'bg-gray-300'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              autoAnalyzeOnDragDrop ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
-      </SettingRow>
-      <HelpBox text="Disable for performance on large sprints. Re-enable for real-time decision support." />
-
-      <SettingRow
-        label="Sprint Buffer Capacity"
-        description="Percentage of sprint capacity to keep free for emergencies and unplanned work."
-      >
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min="0"
-            max="50"
-            value={sprintBufferCapacity}
-            onChange={(e) => setSprintBufferCapacity(parseInt(e.target.value))}
-            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <span className="text-sm text-gray-600">%</span>
-        </div>
-      </SettingRow>
-      <HelpBox text={`Example: 30 SP sprint with 15% buffer = 25.5 SP for planned items, 4.5 SP reserved.`} />
-
-      <SettingRow
-        label="Default Overload Resolution Strategy"
-        description="When sprint capacity is exceeded, which mitigation strategy to suggest first."
-      >
-        <select
-          value={defaultOverloadResolution}
-          onChange={(e) => setDefaultOverloadResolution(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="prefer-swap">Prefer Swap (replace low-value items)</option>
-          <option value="prefer-split">Prefer Split (break into smaller pieces)</option>
-          <option value="prefer-defer">Prefer Defer (move to next sprint)</option>
-        </select>
-      </SettingRow>
-      <HelpBox text="This is the initial suggestion. PMs can always override and explore other options." />
-    </div>
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TAB 4: ADVANCED (Expert Settings)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const AdvancedTab = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">Advanced Configuration</h3>
-      <p className="text-sm text-gray-600">Expert-level settings. Only modify if you understand the implications.</p>
-
-      <WarningBox text="Advanced settings can significantly impact system behavior. Changes are logged for audit purposes." />
-
-      <SettingRow
-        label="Model Fallback Behavior"
-        description="What to do if an ML model fails or returns invalid predictions."
-      >
-        <select
-          value={modelFallbackBehavior}
-          onChange={(e) => setModelFallbackBehavior(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="rule-based">Use Rule-Based Math Fallback</option>
-          <option value="show-error">Show Error to User</option>
-          <option value="use-last-valid">Use Last Valid Prediction</option>
-        </select>
-      </SettingRow>
-      <HelpBox text="Rule-Based Math: Uses velocity + effort sizing. Recommended for production environments." />
-      <HelpBox text="Show Error: Alerts user. Requires manual decision. Use for testing/debugging." />
-    </div>
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // MAIN RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
+  const appetiteDots = {
+    Strict: 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]',
+    Standard: 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]',
+    Lenient: 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]',
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 text-gray-900 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      {/* Background Orbs */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-indigo-100 blur-[120px]" />
+        <div className="absolute top-[60%] -right-[10%] w-[40%] h-[40%] rounded-full bg-blue-100 blur-[100px]" />
+      </div>
+
+      <div className="max-w-4xl mx-auto relative z-10">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <SettingsIcon className="w-8 h-8 text-indigo-600" />
-            <h1 className="text-3xl font-bold text-gray-900">AI & Risk Configuration</h1>
-          </div>
-          <p className="text-gray-600 max-w-2xl">
-            Configure your Agile Replanning system to match your team's culture, risk tolerance, and decision-making preferences. This is a Human-in-the-Loop AI system—you're in control.
-          </p>
-        </div>
-
-        {/* Main Settings Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          {/* Tabs Navigation */}
-          <div className="border-b border-gray-200 px-6">
-            <div className="flex gap-1">
-              <TabButton id="general" label="General" isActive={activeTab === 'general'} />
-              <TabButton id="ai-tuning" label="AI Tuning" isActive={activeTab === 'ai-tuning'} />
-              <TabButton id="rule-engine" label="Rule Engine" isActive={activeTab === 'rule-engine'} />
-              <TabButton id="advanced" label="Advanced" isActive={activeTab === 'advanced'} />
+        <div className="mb-12 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-3 bg-white rounded-2xl border border-gray-200 shadow-sm">
+                <SettingsIcon className="w-8 h-8 text-indigo-600" />
+              </div>
+              <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">
+                Space Configuration
+              </h1>
             </div>
+            <p className="text-gray-500 mt-2 text-lg">
+              Fine-tune your agile workspace and AI risk thresholds.
+            </p>
           </div>
 
-          {/* Tab Content */}
-          <div className="p-6">
-            {activeTab === 'general' && <GeneralTab />}
-            {activeTab === 'ai-tuning' && <AITuningTab />}
-            {activeTab === 'rule-engine' && <RuleEngineTab />}
-            {activeTab === 'advanced' && <AdvancedTab />}
-          </div>
-        </div>
-
-        {/* Save Button & Status */}
-        <div className="mt-8 flex items-center justify-between">
+          {/* Action Button */}
           <button
-            onClick={handleSaveConfiguration}
-            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+            onClick={handleSave}
+            disabled={saving}
+            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-300 ${
+              saveSuccess
+                ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-md'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-lg'
+            }`}
           >
-            <Save className="w-5 h-5" />
-            Save Configuration
+            {saving ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : saveSuccess ? (
+              <CheckCircle className="w-5 h-5" />
+            ) : (
+              <Save className="w-5 h-5" />
+            )}
+            {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Changes'}
           </button>
+        </div>
 
-          {saveStatus && (
-            <div className="text-sm font-medium text-green-600 animate-pulse">
-              ✓ {saveStatus}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          {/* General Information Card */}
+          <div className="md:col-span-7 bg-white border border-gray-200 rounded-3xl p-8 shadow-xl relative group transition-all duration-500 hover:border-gray-300">
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-50/50 to-transparent rounded-3xl pointer-events-none" />
+            
+            <div className="flex items-center gap-3 mb-8">
+              <div className="p-2 bg-blue-50 rounded-lg border border-blue-100">
+                <Info className="w-5 h-5 text-blue-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">General Information</h2>
             </div>
-          )}
+
+            <div className="space-y-6 relative z-10">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wider">
+                  Space Name
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder-gray-400"
+                  placeholder="e.g. Engineering Alpha"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wider">
+                  Description
+                </label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  rows={3}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none placeholder-gray-400"
+                  placeholder="Describe your team's mission..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wider">
+                  Team Size (Max Assignees)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="range"
+                    name="max_assignees"
+                    min="1"
+                    max="50"
+                    value={formData.max_assignees}
+                    onChange={handleChange}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                  />
+                  <div className="w-16 text-center bg-gray-50 border border-gray-200 rounded-lg py-2 font-mono text-indigo-600 font-bold">
+                    {formData.max_assignees}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* AI & Planning Tuning */}
+          <div className="md:col-span-5 flex flex-col gap-8">
+            
+            {/* Risk Appetite */}
+            <div className="bg-white border border-gray-200 rounded-3xl p-8 shadow-xl transition-all duration-500 hover:border-gray-300">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-amber-50 rounded-lg border border-amber-100">
+                  <ShieldAlert className="w-5 h-5 text-amber-600" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900">AI Risk Appetite</h2>
+              </div>
+              
+              <p className="text-sm text-gray-500 mb-6">
+                Adjusts how aggressive the AI decision engine is when suggesting deferrals or swaps based on predictions.
+              </p>
+
+              <div className="space-y-3">
+                {['Strict', 'Standard', 'Lenient'].map((level) => (
+                  <label
+                    key={level}
+                    className={`relative flex cursor-pointer rounded-xl border p-4 focus:outline-none transition-all duration-200 ${
+                      formData.risk_appetite === level
+                        ? appetiteColors[level]
+                        : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="risk_appetite"
+                      value={level}
+                      checked={formData.risk_appetite === level}
+                      onChange={handleChange}
+                      className="sr-only"
+                    />
+                    <div className="flex w-full items-center justify-between">
+                      <div className="flex items-center">
+                        <div className="text-sm">
+                          <p className={`font-bold text-gray-900`}>
+                            {level}
+                          </p>
+                        </div>
+                      </div>
+                      {formData.risk_appetite === level && (
+                        <div className={`w-3 h-3 rounded-full ${appetiteDots[level]}`} />
+                      )}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Capacity Config */}
+            <div className="bg-white border border-gray-200 rounded-3xl p-8 shadow-xl transition-all duration-500 hover:border-gray-300">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <Sliders className="w-5 h-5 text-emerald-600" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900">Capacity Tuning</h2>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                    Focus Hours / Day
+                  </label>
+                  <span className="text-emerald-700 font-mono font-bold bg-emerald-50 border border-emerald-200 px-2 py-1 rounded">
+                    {formData.focus_hours_per_day}h
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">
+                  Expected actual coding hours per developer, minus meetings and breaks.
+                </p>
+                <input
+                  type="range"
+                  name="focus_hours_per_day"
+                  min="1"
+                  max="12"
+                  step="0.5"
+                  value={formData.focus_hours_per_day}
+                  onChange={handleChange}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                />
+              </div>
+            </div>
+
+          </div>
         </div>
 
-        {/* Footer Info */}
-        <div className="mt-12 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-900">
-            <strong>Human-in-the-Loop Design:</strong> These settings empower you to tune the AI to your team's specific needs. The system learns from your decisions and provides recommendations, but you always decide.
-          </p>
+        {/* AI Disclaimer */}
+        <div className="mt-8 flex items-start gap-4 p-6 rounded-2xl bg-indigo-50 border border-indigo-100 shadow-sm">
+          <Sparkles className="w-6 h-6 text-indigo-600 flex-shrink-0 mt-1" />
+          <div>
+            <h4 className="text-indigo-900 font-bold mb-1">Human-in-the-Loop Architecture</h4>
+            <p className="text-sm text-indigo-800/80 leading-relaxed">
+              These settings control the thresholds for the embedded machine learning pipelines (XGBoost & TabNet). 
+              The system will provide automated recommendations based on your Risk Appetite, but the final decision to add, defer, or split a ticket always remains yours.
+            </p>
+          </div>
         </div>
+
       </div>
     </div>
   );

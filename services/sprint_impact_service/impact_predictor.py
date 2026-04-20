@@ -257,13 +257,12 @@ class ImpactPredictor:
             high_idx = None
             
             for idx, class_label in enumerate(classes):
-                print(f"[v0] Class {idx}: {class_label} (type: {type(class_label).__name__})", file=sys.stderr)
-                if class_label == 'Critical Risk':
+                label_str = SCHEDULE_LABEL_MAP.get(int(class_label), str(class_label))
+                print(f"[v0] Class {idx}: {class_label} (type: {type(class_label).__name__}) -> mapped to {label_str}", file=sys.stderr)
+                if label_str == 'Critical Risk':
                     critical_idx = idx
-                elif class_label == 'High Risk':
+                elif label_str == 'High Risk':
                     high_idx = idx
-            
-            print(f"[v0] Critical index: {critical_idx}, High index: {high_idx}", file=sys.stderr)
             
             # Spillover probability = P(Critical Risk) + P(High Risk)
             spillover_prob_value = 0.0
@@ -277,8 +276,9 @@ class ImpactPredictor:
             print(f"[v0] Spillover prob after percentage: {spillover_prob}", file=sys.stderr)
             
             dominant_idx   = int(np.argmax(proba))
-            dominant_label = SCHEDULE_LABEL_MAP.get(dominant_idx, 'Unknown')
-            print(f"[v0] Dominant class: {dominant_idx} -> {dominant_label}", file=sys.stderr)
+            dominant_class = classes[dominant_idx]
+            dominant_label = SCHEDULE_LABEL_MAP.get(int(dominant_class), 'Unknown')
+            print(f"[v0] Dominant class index: {dominant_idx} -> label {dominant_label}", file=sys.stderr)
 
             if spillover_prob > 50:
                 status, label = 'critical', 'High Risk'
@@ -297,8 +297,11 @@ class ImpactPredictor:
         except Exception as e:
             print(f"\n[SCHEDULE RISK ERROR] {type(e).__name__}: {e}")
             traceback.print_exc()
-            print(f"[DEBUG] Feature array shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
-            print(f"[DEBUG] Feature dtype: {X.dtype if hasattr(X, 'dtype') else 'unknown'}\n")
+            try:
+                if 'X' in locals():
+                    print(f"[DEBUG] Feature array shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+            except Exception:
+                pass
             return self._fallback_schedule_risk(item_data, sprint_context)
 
     # ── 3. Quality risk ───────────────────────────────────────────────────────
@@ -375,10 +378,31 @@ class ImpactPredictor:
             #   raw=2.5 → exp(2.5) = 12.2% drop   (medium ticket)
             #   raw=3.5 → exp(3.5) = 33.1% drop   (heavy mid-sprint addition)
             raw_avg        = float(np.mean(preds))
+            
+            # ── SATURATION GUARD ──────────────────────────────────────────────
+            # If raw_avg > 4.5, the percentage is no longer meaningful (would be
+            # >90% drop). Instead of capping at 99%, return CRITICAL_VOLATILITY.
+            SATURATION_THRESHOLD = 4.5
+            days_remaining = max(1, sprint_context.get('days_remaining', 14))
+            
+            if raw_avg > SATURATION_THRESHOLD:
+                return {
+                    'velocity_change': None,  # N/A for volatile prediction
+                    'drop_pct':        None,
+                    'days_lost':       None,
+                    'days_remaining':  days_remaining,
+                    'saturation_status': 'CRITICAL_VOLATILITY',
+                    'status':          'critical',
+                    'status_label':    'VOLATILE',
+                    'explanation':     (
+                        "Productivity impact is too severe to quantify. The model predicts "
+                        "extraordinary context-switching costs that exceed normal estimation bounds. "
+                        "This task should only be added with explicit risk acceptance."
+                    ),
+                }
+            
             drop_pct       = min(99.0, float(np.exp(raw_avg)))  # always positive %
             velocity_change= round(-drop_pct, 1)                # negative = drag
-
-            days_remaining = max(1, sprint_context.get('days_remaining', 14))
             days_lost      = round((drop_pct / 100.0) * days_remaining, 1)
 
             if drop_pct > 30:
@@ -393,6 +417,7 @@ class ImpactPredictor:
                 'drop_pct':        round(drop_pct, 1),# e.g.  15.0
                 'days_lost':       days_lost,
                 'days_remaining':  days_remaining,
+                'saturation_status': 'NORMAL',
                 'status':          status,
                 'status_label':    label,
                 'explanation':     (

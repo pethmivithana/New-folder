@@ -254,67 +254,95 @@ function BurnupChart({ data }) {
 // ─── Velocity bar chart ───────────────────────────────────────────────────────
 function VelocityChart({ data }) {
   const [tt, setTt] = useState(null);
+  const [normalizeByDevs, setNormalizeByDevs] = useState(false);
   const ref = useRef(null);
   const bars = data.velocity_data || [];
   const avg  = data.average_velocity || 0;
   if (!bars.length) return <Empty msg="Complete a sprint to see velocity data" />;
 
+  // NEW: Normalize velocity by developer count to prevent false team size comparisons
+  const normalizedBars = normalizeByDevs
+    ? bars.map(b => ({
+        ...b,
+        completed_points: b.completed_points / Math.max(1, b.assignee_count || 1),
+        display_label: `${(b.completed_points / Math.max(1, b.assignee_count || 1)).toFixed(1)} SP/dev`
+      }))
+    : bars.map(b => ({ ...b, display_label: `${b.completed_points} SP` }));
+  
+  const normalizedAvg = normalizeByDevs
+    ? avg / Math.max(1, bars[0]?.assignee_count || 1)
+    : avg;
+
   const W = 520, H = 220, P = { t: 12, r: 24, b: 48, l: 44 };
   const cw   = W - P.l - P.r, ch = H - P.t - P.b;
-  const maxV = Math.max(...bars.map(b => b.completed_points), avg, 1);
+  const maxV = Math.max(...normalizedBars.map(b => b.completed_points), normalizedAvg, 1);
   const ySc  = sc([0, maxV], [ch, 0]);
-  const barW = clamp(cw / bars.length - 8, 18, 64);
-  const step = cw / bars.length;
+  const barW = clamp(cw / normalizedBars.length - 8, 18, 64);
+  const step = cw / normalizedBars.length;
   const yTks = [0, .25, .5, .75, 1].map(t => Math.round(maxV * t));
 
   return (
-    <div ref={ref} className="relative select-none" onMouseLeave={() => setTt(null)}>
-      <Tip tt={tt} />
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
-        <defs>
-          <linearGradient id="vbG" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={C.indigo} />
-            <stop offset="100%" stopColor="#818cf8" />
-          </linearGradient>
-        </defs>
-        <g transform={`translate(${P.l},${P.t})`}>
-          {yTks.map(v => <line key={v} x1={0} x2={cw} y1={ySc(v)} y2={ySc(v)} stroke={C.border} strokeWidth="1" />)}
-          {avg > 0 && <line x1={0} x2={cw} y1={ySc(avg)} y2={ySc(avg)} stroke={C.amber} strokeWidth="1.5" strokeDasharray="5 3" />}
-          {bars.map((b, i) => {
-            const bx  = i * step + step / 2 - barW / 2;
-            const bh  = Math.max(ch - ySc(b.completed_points), 2);
-            const by  = ySc(b.completed_points);
-            const lbl = b.sprint_name.length > 11 ? b.sprint_name.slice(0, 11) + '…' : b.sprint_name;
-            return (
-              <g key={i}
-                onMouseMove={(e) => {
-                  const rect = ref.current?.getBoundingClientRect();
-                  setTt({
-                    x: e.clientX - rect.left, y: e.clientY - rect.top, cw: rect.width, ch: rect.height,
-                    lines: [
-                      { text: b.sprint_name },
-                      { dot: C.indigo, text: `Velocity: ${b.completed_points} SP` },
-                      ...(avg > 0 ? [{ dot: C.amber, text: `Avg: ${avg} SP` }] : []),
-                    ],
-                  });
-                }}>
-                <rect x={bx} y={by} width={barW} height={bh} rx="5" fill="url(#vbG)" opacity=".92" />
-                {bh > 20 && (
-                  <text x={bx + barW / 2} y={by - 4} textAnchor="middle" fontSize="10" fontWeight="600" fill={C.indigo}>
-                    {b.completed_points}
-                  </text>
-                )}
-                <text x={bx + barW / 2} y={ch + 16} textAnchor="middle" fontSize="10" fill={C.muted}>{lbl}</text>
-              </g>
-            );
-          })}
-          {yTks.map(v => <text key={v} x={-8} y={ySc(v) + 4} textAnchor="end" fontSize="10" fill={C.muted}>{v}</text>)}
-        </g>
-      </svg>
-      <Legend items={[
-        { color: C.indigo, label: 'Completed SP' },
-        ...(avg > 0 ? [{ color: C.amber, label: `Avg (${avg} SP)`, dash: true }] : []),
-      ]} />
+    <div>
+      <div className="flex items-center justify-between px-3 py-2 mb-2 bg-slate-50 rounded border border-slate-200">
+        <span className="text-xs font-medium text-slate-600">Normalize by Developer Count</span>
+        <button
+          onClick={() => setNormalizeByDevs(!normalizeByDevs)}
+          className={`px-2 py-1 text-xs rounded font-medium transition ${
+            normalizeByDevs
+              ? 'bg-indigo-500 text-white'
+              : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+          }`}>
+          {normalizeByDevs ? 'SP/Dev' : 'Total SP'}
+        </button>
+      </div>
+      <div ref={ref} className="relative select-none" onMouseLeave={() => setTt(null)}>
+        <Tip tt={tt} />
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
+          <defs>
+            <linearGradient id="vbG" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={C.indigo} />
+              <stop offset="100%" stopColor="#818cf8" />
+            </linearGradient>
+          </defs>
+          <g transform={`translate(${P.l},${P.t})`}>
+            {yTks.map(v => <line key={v} x1={0} x2={cw} y1={ySc(v)} y2={ySc(v)} stroke={C.border} strokeWidth="1" />)}
+            {normalizedAvg > 0 && <line x1={0} x2={cw} y1={ySc(normalizedAvg)} y2={ySc(normalizedAvg)} stroke={C.amber} strokeWidth="1.5" strokeDasharray="5 3" />}
+            {normalizedBars.map((b, i) => {
+              const bx  = i * step + step / 2 - barW / 2;
+              const bh  = Math.max(ch - ySc(b.completed_points), 2);
+              const by  = ySc(b.completed_points);
+              const lbl = b.sprint_name.length > 11 ? b.sprint_name.slice(0, 11) + '…' : b.sprint_name;
+              return (
+                <g key={i}
+                  onMouseMove={(e) => {
+                    const rect = ref.current?.getBoundingClientRect();
+                    setTt({
+                      x: e.clientX - rect.left, y: e.clientY - rect.top, cw: rect.width, ch: rect.height,
+                      lines: [
+                        { text: b.sprint_name },
+                        { dot: C.indigo, text: `Velocity: ${b.display_label}` },
+                        ...(normalizedAvg > 0 ? [{ dot: C.amber, text: `Avg: ${normalizeByDevs ? normalizedAvg.toFixed(1) : normalizedAvg} ${normalizeByDevs ? 'SP/dev' : 'SP'}` }] : []),
+                      ],
+                    });
+                  }}>
+                  <rect x={bx} y={by} width={barW} height={bh} rx="5" fill="url(#vbG)" opacity=".92" />
+                  {bh > 20 && (
+                    <text x={bx + barW / 2} y={by - 4} textAnchor="middle" fontSize="10" fontWeight="600" fill={C.indigo}>
+                      {b.completed_points}
+                    </text>
+                  )}
+                  <text x={bx + barW / 2} y={ch + 16} textAnchor="middle" fontSize="10" fill={C.muted}>{lbl}</text>
+                </g>
+              );
+            })}
+            {yTks.map(v => <text key={v} x={-8} y={ySc(v) + 4} textAnchor="end" fontSize="10" fill={C.muted}>{v}</text>)}
+          </g>
+        </svg>
+        <Legend items={[
+          { color: C.indigo, label: 'Completed SP' },
+          ...(avg > 0 ? [{ color: C.amber, label: `Avg (${avg} SP)`, dash: true }] : []),
+        ]} />
+      </div>
     </div>
   );
 }

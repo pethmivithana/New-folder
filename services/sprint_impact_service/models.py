@@ -43,6 +43,7 @@ class SpaceCreate(BaseModel):
     description: str
     max_assignees: int = Field(ge=1)
     focus_hours_per_day: float = Field(default=6.0, ge=1.0, le=24.0)
+    utilization_factor: float = Field(default=0.75, ge=0.5, le=1.0, description="Fraction of focus_hours_per_day actually utilized (0.75 = 75%)")
     risk_appetite: RiskAppetite = Field(default=RiskAppetite.STANDARD)
 
 class SpaceUpdate(BaseModel):
@@ -50,6 +51,7 @@ class SpaceUpdate(BaseModel):
     description: Optional[str] = None
     max_assignees: Optional[int] = Field(default=None, ge=1)
     focus_hours_per_day: Optional[float] = Field(default=None, ge=1.0, le=24.0)
+    utilization_factor: Optional[float] = Field(default=None, ge=0.5, le=1.0, description="Fraction of focus_hours_per_day actually utilized")
     risk_appetite: Optional[RiskAppetite] = None
 
 class Space(BaseModel):
@@ -58,6 +60,7 @@ class Space(BaseModel):
     description: str
     max_assignees: int
     focus_hours_per_day: float = 6.0
+    utilization_factor: float = 0.75
     risk_appetite: str = "Standard"
     created_at: datetime
     updated_at: datetime
@@ -69,9 +72,8 @@ class SprintCreate(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     space_id: str
-    # NEW: how many developers are assigned to this sprint at planning time.
+    # How many developers are assigned to this sprint at planning time.
     # Must be >= 2 and <= space.max_assignees.
-    # This is the "original_devs" used for capacity math and developer exit calculations.
     assignee_count: int = Field(
         default=2,
         ge=2,
@@ -146,17 +148,3 @@ class SprintFinishRequest(BaseModel):
 class AddAssigneeRequest(BaseModel):
     assignee_number: int
 
-# NEW: Developer exit request — triggers MSR-A replanning
-class DeveloperExitRequest(BaseModel):
-    sprint_id: str = Field(..., description="ID of the affected sprint")
-    new_developer_count: int = Field(
-        ...,
-        ge=2,
-        description="Developer count AFTER the exit. Must be >= 2.",
-    )
-    buffer_ratio: float = Field(
-        default=0.20,
-        ge=0.0,
-        le=0.5,
-        description="Stability buffer (0.20 = 20%). Default matches spec.",
-    )
