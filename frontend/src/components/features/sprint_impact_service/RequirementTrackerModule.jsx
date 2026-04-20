@@ -1,6 +1,6 @@
 import React from 'react';
-import AgileManagement from './AgileManagement';
+import ImpactAnalyzer from './ImpactAnalyzer';
 
 export default function RequirementTrackerModule() {
-  return <AgileManagement />;
+  return <ImpactAnalyzer />;
 }

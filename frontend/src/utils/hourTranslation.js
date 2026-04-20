@@ -55,55 +55,12 @@ export function formatSPWithHours(storyPoints, hoursPerSP = 8.0) {
 }
 
 /**
- * Get hours estimate from story points
+ * Get hours estimate from story points (internal helper)
  * 
  * @param {number} storyPoints - Number of story points
  * @param {number} hoursPerSP - Hours per story point (default 8.0)
  * @returns {number} Estimated hours
  */
-export function getHoursEstimate(storyPoints, hoursPerSP = 8.0) {
+function getHoursEstimate(storyPoints, hoursPerSP = 8.0) {
   return Math.round(storyPoints * hoursPerSP * 10) / 10; // Round to 1 decimal
-}
-
-/**
- * Convert hours back to story points (useful for capacity planning)
- * 
- * @param {number} hours - Number of hours
- * @param {number} hoursPerSP - Hours per story point (default 8.0)
- * @returns {number} Estimated story points
- */
-export function getStoryPointsFromHours(hours, hoursPerSP = 8.0) {
-  return Math.round((hours / hoursPerSP) * 10) / 10; // Round to 1 decimal
-}
-
-/**
- * Translate sprint capacity from SP to hours
- * 
- * @param {number} sprintCapacitySP - Sprint capacity in story points
- * @param {number} hoursPerSP - Hours per story point
- * @returns {object} { sp: number, hours: number, formatted: string }
- */
-export function translateCapacity(sprintCapacitySP, hoursPerSP = 8.0) {
-  const hours = Math.round(sprintCapacitySP * hoursPerSP * 10) / 10;
-  return {
-    sp: sprintCapacitySP,
-    hours: hours,
-    formatted: `${sprintCapacitySP} SP = ${hours} Hours`,
-  };
-}
-
-/**
- * Create a translation tooltip for displaying SP ↔ Hours
- * 
- * @param {number} storyPoints - Story points
- * @param {number} hoursPerSP - Hours per SP
- * @returns {string} Tooltip text
- */
-export function createTooltip(storyPoints, hoursPerSP = 8.0) {
-  const hours = getHoursEstimate(storyPoints, hoursPerSP);
-  const pace = (8 / hoursPerSP).toFixed(2);
-  return (
-    `${storyPoints} Story Points = ~${hours} Hours\n` +
-    `(Based on team pace of ${pace} SP/day)`
-  );
 }
