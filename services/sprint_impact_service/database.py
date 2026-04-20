@@ -189,6 +189,127 @@ async def get_last_completed_sprint(space_id: str) -> dict | None:
     }
 
 
+async def calculate_sprint_capacity(space_id: str, new_assignee_count: int, base_sp_per_assignee: int = 8) -> int:
+    """
+    Calculate recommended sprint capacity for a new sprint based on:
+    1. Historical team velocity (completed SP from previous sprints)
+    2. Assignee count (number of people on the new sprint)
+    3. Completion ratio (% of committed work actually completed)
+    
+    Formula:
+      For first sprint: capacity = new_assignee_count * base_sp_per_assignee
+      For subsequent sprints: capacity = (previous_velocity * completion_ratio) * (new_assignee_count / previous_assignee_count)
+    
+    Args:
+        space_id: The space/project ID
+        new_assignee_count: Number of assignees on the new sprint
+        base_sp_per_assignee: Default SP per assignee (typically 8)
+    
+    Returns:
+        Recommended capacity in story points
+    """
+    db = get_database()
+    
+    # Check if there are any completed sprints
+    previous_sprint = await db.sprints.find_one(
+        {"space_id": space_id, "status": "Completed"},
+        sort=[("updated_at", DESCENDING)]
+    )
+    
+    # FIRST SPRINT: Use default calculation
+    if not previous_sprint:
+        return new_assignee_count * base_sp_per_assignee
+    
+    # SUBSEQUENT SPRINTS: Calculate based on historical performance
+    previous_sprint_id = str(previous_sprint["_id"])
+    previous_assignee_count = previous_sprint.get("assignee_count", 2)
+    
+    # Get all items from previous sprint to calculate completion ratio
+    total_committed_sp = 0
+    completed_sp = 0
+    
+    async for item in db.backlog_items.find({"sprint_id": previous_sprint_id}):
+        sp = item.get("story_points", 0)
+        total_committed_sp += sp
+        if item.get("status") == "Done":
+            completed_sp += sp
+    
+    # Calculate completion ratio (how well team executed)
+    completion_ratio = (completed_sp / total_committed_sp) if total_committed_sp > 0 else 1.0
+    
+    # Calculate new capacity: scale by completion ratio and assignee count change
+    # If team completed 80% with 3 people, and now we have 2 people:
+    # new_capacity = 24 * 0.80 * (2/3) = 12.8 SP
+    previous_capacity = previous_assignee_count * base_sp_per_assignee
+    new_capacity = int(
+        previous_capacity * completion_ratio * (new_assignee_count / previous_assignee_count)
+    )
+    
+    # Ensure minimum capacity of (assignee_count * 4) to avoid overly pessimistic calculations
+    min_capacity = new_assignee_count * 4
+    return max(min_capacity, new_capacity)
+
+
+async def check_sprint_capacity_status(sprint_id: str) -> dict:
+    """
+    Check current sprint capacity status.
+    
+    Returns:
+      {
+        "sprint_id": sprint_id,
+        "team_capacity_sp": 16,
+        "current_load_sp": 12,
+        "remaining_capacity_sp": 4,
+        "safe_limit_80_sp": 12.8,
+        "capacity_percentage": 75.0,
+        "status": "HEALTHY"  # HEALTHY, CAUTION, CRITICAL
+      }
+    
+    Status codes:
+      - HEALTHY: < 80% used
+      - CAUTION: 80-100% used (warning shown to user)
+      - CRITICAL: >= 100% used (block new additions)
+    """
+    db = get_database()
+    
+    if not ObjectId.is_valid(sprint_id):
+        return None
+    
+    sprint = await db.sprints.find_one({"_id": ObjectId(sprint_id)})
+    if not sprint:
+        return None
+    
+    team_capacity_sp = sprint.get("team_capacity_sp", 16)
+    
+    # Calculate current load from all items in sprint
+    current_load_sp = 0
+    async for item in db.backlog_items.find({"sprint_id": sprint_id}):
+        if item.get("status") != "Done":
+            current_load_sp += item.get("story_points", 0)
+    
+    remaining_capacity = team_capacity_sp - current_load_sp
+    capacity_percentage = (current_load_sp / team_capacity_sp * 100) if team_capacity_sp > 0 else 0
+    safe_limit_80 = team_capacity_sp * 0.80
+    
+    # Determine status
+    if capacity_percentage >= 100:
+        status = "CRITICAL"
+    elif capacity_percentage >= 80:
+        status = "CAUTION"
+    else:
+        status = "HEALTHY"
+    
+    return {
+        "sprint_id": sprint_id,
+        "team_capacity_sp": team_capacity_sp,
+        "current_load_sp": current_load_sp,
+        "remaining_capacity_sp": max(0, remaining_capacity),
+        "safe_limit_80_sp": round(safe_limit_80, 1),
+        "capacity_percentage": round(capacity_percentage, 1),
+        "status": status,
+    }
+
+
 # ── Analytics helpers ─────────────────────────────────────────────────────────
 
 async def get_space_velocity_history(space_id: str, limit: int = 10) -> list:

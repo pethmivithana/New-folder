@@ -154,18 +154,67 @@ class ImpactPredictor:
         focus_hours_per_day: float = _DEFAULT_FOCUS_HOURS,
         risk_appetite: str = "Standard",
     ) -> dict:
+        """
+        Predict all impact metrics for a requirement with comprehensive error handling.
+        
+        If ML models fail, falls back to heuristic-based estimates.
+        Returns always include a confidence score and error flag if fallback was used.
+        """
         ctx = self._enrich_context(sprint_context)
-
-        effort      = self._predict_effort(item_data, ctx, focus_hours_per_day)
-        schedule    = self._predict_schedule_risk(item_data, ctx)
-        quality     = self._predict_quality_risk(item_data, ctx)
-        productivity= self._predict_productivity(item_data, ctx)
-        summary     = self._generate_summary(effort, schedule, quality, productivity, risk_appetite)
-        display     = generate_display_metrics(
-                          effort, schedule, productivity, quality,
-                          ctx, focus_hours_per_day)
-        features    = feature_engineer.extract_features(item_data, ctx)
-
+        
+        # Try to use ML models with graceful fallback
+        try:
+            effort = self._predict_effort(item_data, ctx, focus_hours_per_day)
+        except Exception as e:
+            print(f"[ERROR] Effort prediction failed, using heuristic: {e}")
+            effort = self._heuristic_effort(item_data, ctx, focus_hours_per_day)
+            effort["error_flag"] = "ML_FAILED_USING_HEURISTIC"
+        
+        try:
+            schedule = self._predict_schedule_risk(item_data, ctx)
+        except Exception as e:
+            print(f"[ERROR] Schedule risk prediction failed, using heuristic: {e}")
+            schedule = self._heuristic_schedule_risk(item_data, ctx)
+            schedule["error_flag"] = "ML_FAILED_USING_HEURISTIC"
+        
+        try:
+            quality = self._predict_quality_risk(item_data, ctx)
+        except Exception as e:
+            print(f"[ERROR] Quality risk prediction failed, using heuristic: {e}")
+            quality = self._heuristic_quality_risk(item_data, ctx)
+            quality["error_flag"] = "ML_FAILED_USING_HEURISTIC"
+        
+        try:
+            productivity = self._predict_productivity(item_data, ctx)
+        except Exception as e:
+            print(f"[ERROR] Productivity prediction failed, using heuristic: {e}")
+            productivity = self._heuristic_productivity(item_data, ctx)
+            productivity["error_flag"] = "ML_FAILED_USING_HEURISTIC"
+        
+        # Summary and display metrics can use the above (even if from heuristic)
+        try:
+            summary = self._generate_summary(effort, schedule, quality, productivity, risk_appetite)
+        except Exception as e:
+            print(f"[ERROR] Summary generation failed: {e}")
+            summary = {"recommendation": "DEFER", "reasoning": "Unable to analyze impact. Suggest deferring to next sprint."}
+        
+        try:
+            display = generate_display_metrics(
+                effort, schedule, productivity, quality,
+                ctx, focus_hours_per_day)
+        except Exception as e:
+            print(f"[ERROR] Display metrics generation failed: {e}")
+            display = {"error": "Display metrics unavailable"}
+        
+        try:
+            features = feature_engineer.extract_features(item_data, ctx)
+        except Exception as e:
+            print(f"[ERROR] Feature extraction failed: {e}")
+            features = {}
+        
+        # Determine overall confidence level
+        has_errors = any(m.get("error_flag") for m in [effort, schedule, quality, productivity])
+        
         return {
             'effort':        effort,
             'schedule_risk': schedule,
@@ -174,6 +223,8 @@ class ImpactPredictor:
             'summary':       summary,
             'display':       display,
             'features':      features,
+            'model_confidence': 'LOW' if has_errors else 'HIGH',
+            'using_heuristic': has_errors,
         }
 
     # ── context enrichment ────────────────────────────────────────────────────
@@ -472,7 +523,7 @@ class ImpactPredictor:
         else:
             return {'risk_score': score, 'overall_risk': 'low',      'recommendation': 'ADD', 'risk_appetite': risk_appetite}
 
-    # ── fallbacks ─────────────────────────────────────────────────────────────
+    # ── fallbacks (legacy) ────────────────────────────────────────────────────
     def _fallback_effort(self, item_data, sprint_context,
                          focus_hours_per_day=_DEFAULT_FOCUS_HOURS):
         h = item_data.get('story_points', 5) * 5
@@ -510,6 +561,118 @@ class ImpactPredictor:
             'status':          'warning',
             'status_label':    'Negative',
             'explanation':     'Context switching to this task will slow down the remaining backlog items.',
+        }
+    
+    # ── heuristic fallbacks (when ML models fail) ─────────────────────────────
+    def _heuristic_effort(self, item_data, ctx, focus_hours_per_day=_DEFAULT_FOCUS_HOURS):
+        """Heuristic effort estimation when ML fails."""
+        sp = item_data.get('story_points', 5)
+        hours = sp * focus_hours_per_day
+        days_remaining = max(1, ctx.get('days_remaining', 14))
+        hours_remaining = days_remaining * focus_hours_per_day
+        
+        if hours > hours_remaining:
+            status = 'critical'
+            label = 'Sprint Overload'
+        elif hours > hours_remaining * 0.8:
+            status = 'warning'
+            label = 'Tight Fit'
+        else:
+            status = 'safe'
+            label = 'Fits in Sprint'
+        
+        return {
+            'hours_lower': round(hours * 0.7, 1),
+            'hours_median': float(hours),
+            'hours_upper': round(hours * 1.5, 1),
+            'status': status,
+            'status_label': label,
+            'explanation': f'Heuristic: {sp} SP × {focus_hours_per_day}h/SP = {hours}h',
+        }
+    
+    def _heuristic_schedule_risk(self, item_data, ctx):
+        """Heuristic schedule risk when ML fails."""
+        sp = item_data.get('story_points', 5)
+        days = max(1, ctx.get('days_remaining', 14))
+        sp_per_day = sp / days
+        
+        # Simple heuristic: if more than 2 SP/day, it's risky
+        if sp_per_day > 3:
+            status = 'critical'
+            probability = min(95.0, sp_per_day * 20)
+            label = 'Delay Imminent'
+        elif sp_per_day > 2:
+            status = 'warning'
+            probability = min(80.0, sp_per_day * 20)
+            label = 'Moderate Risk'
+        else:
+            status = 'safe'
+            probability = min(30.0, sp_per_day * 10)
+            label = 'Low Risk'
+        
+        return {
+            'probability': round(probability, 1),
+            'status': status,
+            'status_label': label,
+            'explanation': f'Heuristic: {sp} SP in {days} days = {sp_per_day:.1f} SP/day',
+        }
+    
+    def _heuristic_quality_risk(self, item_data, ctx):
+        """Heuristic quality risk when ML fails."""
+        complexity = len(item_data.get('description', '')) / 100.0
+        dependencies = item_data.get('title', '').lower().count('depend')
+        
+        risk_score = 20.0 + (complexity * 30) + (dependencies * 15)
+        risk_score = min(80.0, risk_score)
+        
+        if risk_score > 60:
+            status = 'critical'
+            label = 'High Risk'
+        elif risk_score > 40:
+            status = 'warning'
+            label = 'Moderate Risk'
+        else:
+            status = 'safe'
+            label = 'Low Risk'
+        
+        return {
+            'probability': round(risk_score, 1),
+            'status': status,
+            'status_label': label,
+            'explanation': 'Heuristic: Based on requirement complexity and dependencies',
+        }
+    
+    def _heuristic_productivity(self, item_data, ctx):
+        """Heuristic productivity impact when ML fails."""
+        sp = item_data.get('story_points', 5)
+        days = max(1, ctx.get('days_remaining', 14))
+        
+        # Larger items mid-sprint = more context switching impact
+        sprint_progress = ctx.get('sprint_progress', 0.5)
+        base_impact = (sp / 8.0) * (1 - sprint_progress) * 20.0
+        
+        drop_pct = min(60.0, base_impact)
+        velocity_change = -drop_pct
+        days_lost = round((drop_pct / 100.0) * days, 1)
+        
+        if drop_pct > 40:
+            status = 'critical'
+            label = 'Severe Drag'
+        elif drop_pct > 20:
+            status = 'warning'
+            label = 'Negative Impact'
+        else:
+            status = 'safe'
+            label = 'Minimal Impact'
+        
+        return {
+            'velocity_change': round(velocity_change, 1),
+            'drop_pct': round(drop_pct, 1),
+            'days_lost': days_lost,
+            'days_remaining': days,
+            'status': status,
+            'status_label': label,
+            'explanation': 'Heuristic: Context switching impact based on timing and size',
         }
 
 
