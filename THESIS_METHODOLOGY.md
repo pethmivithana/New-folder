@@ -2,763 +2,132 @@
 
 ## 3.1 System Overview and Component Architecture
 
-### 3.1.1 System Overview Diagram
+The proposed Sprint Impact Analyzer component is designed to analyze the effects of mid-sprint requirement changes on active sprint goals and guide teams through intelligent replanning decisions. The system operates through five interconnected phases: data acquisition, feature engineering, multi-metric impact prediction, sprint goal alignment analysis, and decision generation with human-in-loop execution. This pipeline transforms raw sprint context data, historical sprint metrics, and new requirement properties into actionable replanning recommendations that consider both technical feasibility and strategic alignment.
 
-The proposed approach for this component consists of five interconnected phases designed to transform sprint context and new requirements into actionable replanning decisions. The system follows a data-driven pipeline architecture that integrates historical sprint data, real-time sprint state, and requirement properties to generate intelligent recommendations.
+The component integrates three primary data sources: historical sprint performance data including completed story points and team velocity, current sprint state information such as assigned backlog items and days remaining, and real-time requirement properties including title, description, story point estimates, and priority levels. These inputs flow through a sophisticated ML-powered intelligence layer that operates continuously as new requirements are proposed during active sprints. The system then outputs a decision recommendation alongside detailed impact metrics, allowing product owners and scrum masters to understand the consequences of each replanning option before committing to implementation.
 
-**Figure 3.1.1: System Overview Diagram**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    SPRINT IMPACT ANALYZER                   │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  [1] Data Acquisition          [2] Feature Engineering      │
-│      └─ Sprint History              └─ Requirement Text     │
-│      └─ Backlog Items               └─ Numerical Vectors    │
-│      └─ Team Velocity               └─ Sprint Context       │
-│                                                              │
-│              ↓                                               │
-│                                                              │
-│  [3] Multi-Metric Impact Prediction                         │
-│      ├─ Effort Predictor (Linear Regression Ensemble)       │
-│      ├─ Schedule Risk (XGBoost Classifier)                  │
-│      ├─ Quality Risk (TabNet Deep Learning)                 │
-│      └─ Productivity Impact (LSTM Neural Network)           │
-│                                                              │
-│              ↓                                               │
-│                                                              │
-│  [4] Sprint Goal Alignment (NLP Analysis)                   │
-│      └─ Semantic Similarity Matching                        │
-│      └─ Alignment State Classification                      │
-│                                                              │
-│              ↓                                               │
-│                                                              │
-│  [5] Decision Engine & Human-in-Loop                        │
-│      ├─ Rule-Based Recommendation (ADD/DEFER/SPLIT/SWAP)   │
-│      ├─ Capacity Enforcement (80% Safe Limit)              │
-│      └─ Decision Execution & Tracking                       │
-│                                                              │
-│              ↓                                               │
-│                                                              │
-│  [Dashboard] Impact History & Analytics                     │
-│      └─ Action Tracking & Velocity Analysis                 │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 3.1.2 Component Overview Diagram
-
-The system consists of three main architectural layers: data layer, intelligence layer, and presentation layer.
-
-**Figure 3.1.2: Component Overview Diagram**
-
-```
-┌──────────────────────────────────────────────────────────┐
-│              PRESENTATION LAYER (Frontend)               │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  Impact Analyzer UI                              │   │
-│  │  ├─ Requirement Input Form                       │   │
-│  │  ├─ Impact Metrics Visualization                 │   │
-│  │  ├─ Recommendation Display                       │   │
-│  │  └─ Decision Action Buttons                      │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  Analytics Dashboard                             │   │
-│  │  ├─ Velocity Charts                              │   │
-│  │  ├─ Impact History Timeline                      │   │
-│  │  ├─ Action Tracking                              │   │
-│  │  └─ Burndown/Burnup Visualization                │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  Sprint Management UI                            │   │
-│  │  ├─ Capacity Display (Safe/Caution/Critical)    │   │
-│  │  ├─ Kanban Board                                 │   │
-│  │  └─ Sprint Goal Display                          │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-                          ↓
-┌──────────────────────────────────────────────────────────┐
-│           INTELLIGENCE LAYER (Backend/Models)            │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Feature Engineering Module                      │   │
-│  │ ├─ Text Vectorization (TF-IDF)                  │   │
-│  │ ├─ Sprint Context Features                      │   │
-│  │ └─ Historical Data Normalization                │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Prediction Ensemble (4 Models)                  │   │
-│  │ ├─ Effort: Linear Regression                    │   │
-│  │ ├─ Schedule Risk: XGBoost                       │   │
-│  │ ├─ Quality Risk: TabNet                         │   │
-│  │ └─ Productivity: LSTM                           │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ NLP & Alignment Module                          │   │
-│  │ ├─ TF-IDF Cosine Similarity                     │   │
-│  │ └─ Alignment State Classification               │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │ Decision Engine (Rule-Based)                    │   │
-│  │ ├─ ADD/DEFER/SPLIT/SWAP Logic                  │   │
-│  │ ├─ Capacity Validation (80% Safe Limit)        │   │
-│  │ └─ Risk Threshold Matching                      │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-                          ↓
-┌──────────────────────────────────────────────────────────┐
-│            DATA LAYER (MongoDB, Historical)              │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌─────────────────┐  ┌──────────────────┐             │
-│  │  Spaces         │  │  Sprints         │             │
-│  │  ├─ max_assign- │  │  ├─ name         │             │
-│  │  │  ees         │  │  ├─ goal         │             │
-│  │  └─ focus_hours │  │  ├─ capacity_sp  │             │
-│  └─────────────────┘  │  └─ status       │             │
-│                       └──────────────────┘             │
-│                                                          │
-│  ┌─────────────────┐  ┌──────────────────┐             │
-│  │  Backlog Items  │  │ Recommendation   │             │
-│  │  ├─ story_points│  │ Logs             │             │
-│  │  ├─ status      │  │ ├─ alignment     │             │
-│  │  └─ sprint_id   │  │ ├─ metrics       │             │
-│  └─────────────────┘  │ └─ action_taken  │             │
-│                       └──────────────────┘             │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
-
-### 3.1.3 Machine Learning Flow
-
-The system implements a multi-stage ML pipeline with error handling and fallback mechanisms.
-
-**Figure 3.1.3: Machine Learning and Decision Flow**
-
-```
-         NEW REQUIREMENT INPUT
-                ↓
-     ┌──────────────────────────┐
-     │  Input Validation        │
-     │  ├─ Gibberish Detection  │
-     │  ├─ Min Length Check     │
-     │  └─ Technical Term Allow  │
-     └──────────────────────────┘
-              ↓ (Valid)
-     ┌──────────────────────────┐
-     │ Feature Engineering      │
-     │ ├─ TF-IDF Vectorization  │
-     │ ├─ Sprint Context        │
-     │ └─ Historical Features   │
-     └──────────────────────────┘
-              ↓
-     ┌──────────────────────────────────────┐
-     │  FOUR-MODEL ENSEMBLE PREDICTION      │
-     ├──────────────────────────────────────┤
-     │                                      │
-     │ ┌──────────────────────────────┐    │
-     │ │ Model 1: Effort Predictor    │    │
-     │ │ Type: Linear Regression      │    │
-     │ │ Output: Hours Estimate       │    │
-     │ │ Confidence: 75-85%           │    │
-     │ └──────────────────────────────┘    │
-     │              ↓                       │
-     │ ┌──────────────────────────────┐    │
-     │ │ Model 2: Schedule Risk       │    │
-     │ │ Type: XGBoost Classifier     │    │
-     │ │ Output: Spillover Probability│    │
-     │ │ Confidence: 80-90%           │    │
-     │ └──────────────────────────────┘    │
-     │              ↓                       │
-     │ ┌──────────────────────────────┐    │
-     │ │ Model 3: Quality Risk        │    │
-     │ │ Type: TabNet Deep Learning   │    │
-     │ │ Output: Defect Injection Risk│    │
-     │ │ Confidence: 70-80%           │    │
-     │ └──────────────────────────────┘    │
-     │              ↓                       │
-     │ ┌──────────────────────────────┐    │
-     │ │ Model 4: Productivity Impact │    │
-     │ │ Type: LSTM Neural Network    │    │
-     │ │ Output: Velocity Drop %      │    │
-     │ │ Confidence: 65-75%           │    │
-     │ └──────────────────────────────┘    │
-     │                                      │
-     └──────────────────────────────────────┘
-         [With Heuristic Fallback if ML Fails]
-              ↓
-     ┌──────────────────────────┐
-     │ NLP Sprint Goal Alignment │
-     │ ├─ TF-IDF Similarity      │
-     │ ├─ Jaccard Index          │
-     │ └─ Alignment State        │
-     │    - STRONGLY_ALIGNED     │
-     │    - PARTIALLY_ALIGNED    │
-     │    - WEAKLY_ALIGNED       │
-     │    - UNALIGNED            │
-     │    - CRITICAL_BLOCKER     │
-     └──────────────────────────┘
-              ↓
-     ┌──────────────────────────────┐
-     │ Rule-Based Decision Engine   │
-     │ ├─ Risk Threshold Matching   │
-     │ ├─ Capacity Validation       │
-     │ └─ Decision Generation       │
-     │    - ADD                     │
-     │    - DEFER                   │
-     │    - SPLIT                   │
-     │    - SWAP                    │
-     └──────────────────────────────┘
-              ↓
-     ┌──────────────────────────────┐
-     │ Human-in-Loop Decision       │
-     │ ├─ Display Recommendation    │
-     │ ├─ Show Impact Metrics       │
-     │ └─ Manager Makes Choice      │
-     └──────────────────────────────┘
-              ↓
-     ┌──────────────────────────────┐
-     │ Action Execution & Tracking  │
-     │ ├─ Update Sprint/Backlog     │
-     │ ├─ Adjust Capacity           │
-     │ └─ Log Decision History      │
-     └──────────────────────────────┘
-```
-
----
+The component architecture follows a three-layer design: the presentation layer (frontend) handles user interaction through forms and dashboards, the intelligence layer (backend) executes all ML models and business logic, and the data layer (MongoDB) persists all historical and current sprint information. This separation of concerns enables scalability and allows each layer to be optimized independently. The presentation layer provides intuitive interfaces for adding requirements, viewing impact metrics, and reviewing historical decisions. The intelligence layer contains the four predictive ML models, sprint goal alignment analyzer, and decision engine. The data layer maintains sprint records, backlog items, impact analysis logs, and team configuration data.
 
 ## 3.2 Implementation Approach
 
 ### 3.2.1 System Architecture and Data Flow
 
-The system is built on a modern three-tier architecture:
+The backend implementation uses FastAPI, a modern Python web framework, to expose RESTful endpoints for all operations. The system follows an event-driven architecture where requirement submission triggers a cascade of analyses. When a user submits a new requirement through the frontend form, the system immediately validates input for meaningfulness using NLP-based gibberish detection, which checks vowel ratios, consonant runs, and character repetition patterns to prevent low-quality requirements from entering analysis pipelines.
 
-**Backend (Python FastAPI)**
-- Handles all ML model inference and decision logic
-- Manages MongoDB data persistence
-- Provides REST APIs for frontend communication
-- Implements error handling with graceful fallbacks
+Upon validation, the requirement and current sprint context are packaged into a request to the impact prediction engine. This engine simultaneously executes four independent ML models that predict different aspects of sprint impact. Each model operates with error handling and graceful degradation—if a model fails to load or produces invalid output, the system automatically falls back to heuristic-based estimation rather than crashing. The predictions are then combined with sprint goal alignment analysis through natural language processing.
 
-**Frontend (React/JavaScript)**
-- Displays impact analyzer interface with requirement input form
-- Visualizes impact metrics in real-time
-- Shows recommendation and allows human decision-making
-- Tracks action history and analytics
+The results flow to the decision engine, which applies a rule-based recommendation algorithm that considers alignment state, available capacity, requirement priority, risk levels, and team historical performance. The decision engine generates one of four recommendations: ADD (integrate into current sprint), DEFER (move to backlog for future sprint), SPLIT (divide requirement into current and future components), or SWAP (exchange with existing low-priority items). All analysis steps are logged with timestamps and stored for historical tracking and audit purposes.
 
-**Database (MongoDB)**
-- Stores spaces, sprints, backlog items, and historical data
-- Maintains recommendation logs for impact tracking
-- Persists sprint goal alignment analyses
+### 3.2.2 Machine Learning Model Implementation
 
-### 3.2.2 The Four Machine Learning Models
+Four ML models work in ensemble to predict different dimensions of sprint impact. Each model is trained on historical sprint data from previous completed sprints within the same organization context.
 
-Since the nature of sprint impact is multifaceted, four distinct machine learning models were implemented to predict complementary dimensions of project health:
+**Effort Predictor (Linear Regression):** This model estimates the effort required to implement the requirement expressed in both story points and hours. The model takes features including requirement text length, historical complexity indicators, similarity to previous requirements, and team context. It outputs effort as a range with lower bound, median estimate, and upper bound, along with a confidence score. The model uses min-max normalization for feature scaling and applies regularization to prevent overfitting on small datasets. When ML prediction fails, the heuristic fallback uses a simple formula: estimated_hours = story_points × focus_hours_per_day (default 8 hours per story point).
 
-#### **Model 1: Effort Predictor (Linear Regression Ensemble)**
+**Schedule Risk Predictor (XGBoost Classifier):** This gradient boosting model classifies whether a new requirement will cause schedule delays. It considers sprint duration, days remaining, current load as percentage of capacity, requirement size, and team historical completion patterns. The model outputs probability scores for each risk level (safe, moderate, high) and explains which features contributed most to the prediction. XGBoost handles missing data naturally and provides feature importance rankings that help teams understand what factors drive schedule risk. Fallback heuristic uses: risk_probability = (requirement_sp / days_remaining) × 20, capped at 95%.
 
-**Purpose:** Estimate the actual effort (in hours) required for a new requirement
+**Quality Risk Predictor (TabNet Deep Learning):** This interpretable deep learning model predicts quality degradation risk, considering requirement complexity, technical dependencies, team skill distribution, and historical defect rates. TabNet was chosen specifically for its interpretability—it masks features progressively through decision steps, making it possible to explain which aspects of a requirement drive quality risk. The model outputs both a risk probability and feature masks showing which input features influenced the decision. When the model is unavailable, heuristic estimation uses requirement description length as a complexity proxy: risk_score = 20 + (text_length / 100) × 30 + (dependency_count × 15).
 
-**Architecture:**
-- Input: Requirement title, description, historical similar items
-- Feature Engineering: TF-IDF vectors of requirement text, complexity metrics, dependency count
-- Training Data: Historical backlog items with actual hours spent
-- Output: Point estimate with confidence interval
+**Productivity Impact Predictor (LSTM Neural Network):** This recurrent neural network models how adding a requirement affects team velocity on remaining backlog items through context switching overhead. LSTM captures temporal patterns in how team productivity changes with increasing sprint load. The model considers current sprint progress, requirement size, days remaining, and historical productivity curves. It outputs predicted velocity change percentage and estimated days of productivity lost due to context switching. Fallback heuristic estimates: base_impact = (requirement_sp / 8) × (1 - sprint_progress) × 20%, with higher impact for requirements added later in the sprint.
 
-**Implementation Details:**
-- Uses scikit-learn's LinearRegression with cross-validation
-- Handles missing data through mean imputation
-- Provides upper/lower bounds for uncertainty quantification
-- Fallback: Heuristic uses SP × focus_hours_per_day (default 8 hours per SP)
+All four models include built-in fallback mechanisms. If any model fails to load during system startup, a warning is logged and the system continues using heuristic estimation for that metric. If a model produces an invalid prediction at runtime (e.g., probability outside 0-100 range), the prediction is discarded and the heuristic estimate is used instead, with a flag noting the fallback.
 
-**Model Performance:**
-- Accuracy on validation set: 78-85%
-- Handles edge cases through feature normalization
-- Reports confidence score with predictions
+### 3.2.3 Sprint Capacity Calculation
 
-#### **Model 2: Schedule Risk Predictor (XGBoost Classifier)**
+Sprint capacity is calculated using an algorithm that learns from team performance across sprints. For the first sprint in a project, capacity is initialized as: capacity_sp = assignee_count × 8 (assuming 8 story points per developer per sprint as baseline). For subsequent sprints, the system adjusts capacity based on the previous sprint's completion ratio and changes in team size.
 
-**Purpose:** Predict probability of task spillover beyond sprint boundary
+The algorithm is: new_capacity = previous_capacity × completion_ratio × (new_assignee_count / previous_assignee_count), where completion_ratio = completed_sp / total_committed_sp. For example, if a team of 3 developers committed to 24 story points and completed 20 (83% completion), and the team is now 2 people, the new capacity would be: 24 × 0.83 × (2/3) = 13.3 ≈ 13 story points. This approach ensures capacity adapts to team velocity while accounting for team size changes. A minimum capacity constraint prevents overly pessimistic calculations: minimum = assignee_count × 4, ensuring that poor performance in one sprint doesn't make subsequent sprints unreasonably constrained.
 
-**Architecture:**
-- Input: Requirement effort, sprint progress, days remaining, team capacity
-- Algorithm: Gradient Boosting (XGBoost) with class weighting
-- Training Data: Historical sprint outcomes (completed vs. incomplete items)
-- Output: Spillover probability (0-100%)
+The system enforces an 80% "safe buffer" where:
+- 0-80% capacity: HEALTHY status (no warnings)
+- 80-100% capacity: CAUTION status (warning displayed but additions allowed)
+- >100% capacity: CRITICAL status (block new additions until items are removed)
 
-**Implementation Details:**
-- Weights minority class (failed items) heavily to avoid optimism bias
-- Considers temporal features (days elapsed vs. days remaining)
-- Analyzes current team load relative to capacity
-- Fallback: Heuristic based on effort-per-day analysis
+This buffer acknowledges that teams rarely operate at maximum capacity due to unexpected issues, meetings, and knowledge transfer tasks.
 
-**Risk Categories:**
-- Safe: < 30% spillover probability
-- Moderate: 30-60%
-- High Risk: > 60%
-- Critical: >= 100% (impossible to complete)
+### 3.2.4 Sprint Goal Alignment Analysis
 
-#### **Model 3: Quality Risk Predictor (TabNet Deep Learning)**
+Sprint goal alignment is analyzed through a four-layer NLP analysis pipeline. Layer 1 applies critical blocker detection, checking for explicit misalignment signals such as keywords indicating scope creep, unrelated domains, or conflicting objectives. Layer 2 uses TF-IDF cosine similarity to compute semantic similarity between requirement text and sprint goal. TF-IDF vectorization converts both texts into numerical vectors based on term frequency and inverse document frequency, then computes cosine similarity ranging from 0 (completely different) to 1 (identical). A fallback to Jaccard similarity (set-based overlap) is used if cosine similarity fails.
 
-**Purpose:** Estimate probability of defect injection from requirement change
+Layer 3 applies metadata traceability, checking whether the requirement depends on items outside the sprint or relates to features from previous sprints. Layer 4 generates an alignment state classification with five possible outcomes:
 
-**Architecture:**
-- Input: Requirement description complexity, change scope, affected areas
-- Algorithm: TabNet (tabular data deep learning architecture)
-- Training Data: Historical items with recorded defect counts post-implementation
-- Output: Quality risk percentage (0-100%)
+- CRITICAL_BLOCKER: Requirement directly contradicts sprint goal or blocks critical dependencies
+- STRONGLY_ALIGNED: High semantic similarity and no metadata conflicts
+- PARTIALLY_ALIGNED: Moderate similarity with minor peripheral relevance
+- WEAKLY_ALIGNED: Low similarity but not contradictory
+- UNALIGNED: No measurable relationship to sprint goal
 
-**Implementation Details:**
-- Captures non-linear relationships in tabular data
-- Uses attention mechanisms to identify important features
-- Detects integration complexity from text analysis
-- Fallback: Heuristic based on requirement text complexity and dependency count
+The alignment state directly influences the decision engine's recommendations. Strongly aligned requirements are more likely to be recommended for ADD, while weakly aligned items tend toward DEFER recommendations regardless of capacity status.
 
-**Quality Risk Indicators:**
-- Safe: < 30% quality risk
-- Elevated: 30-60%
-- High Risk: > 60%
+### 3.2.5 Rule-Based Decision Engine
 
-#### **Model 4: Productivity Impact Predictor (LSTM Neural Network)**
-
-**Purpose:** Estimate velocity drop from context switching caused by mid-sprint additions
-
-**Architecture:**
-- Input: Sprint stage, new requirement size, team load, historical context-switch impact
-- Algorithm: Long Short-Term Memory (LSTM) neural network
-- Training Data: Historical velocity patterns during sprint disruptions
-- Output: Productivity drop percentage
-
-**Implementation Details:**
-- Temporal model captures sprint progress stage effects
-- Earlier additions have greater impact (more context switches)
-- Considers team size and individual assignment patterns
-- Fallback: Heuristic estimates productivity loss based on sprint stage
-
-**Productivity Impact:**
-- Minimal: < 10% velocity drop
-- Moderate: 10-25%
-- Significant: 25-40%
-- Severe: > 40%
-
-### 3.2.3 Sprint Capacity Calculation and Management
-
-The system implements intelligent capacity management with historical learning:
-
-**Capacity Calculation Algorithm:**
-
-```
-First Sprint Capacity:
-  capacity_sp = assignee_count × 8 SP
-
-Subsequent Sprints:
-  previous_velocity = completed_sp_last_sprint
-  completion_ratio = completed_sp / committed_sp
-  new_capacity = (previous_velocity × completion_ratio) 
-                 × (new_assignees / previous_assignees)
-  
-  Minimum floor: capacity_sp = assignee_count × 4 SP
-```
-
-**Capacity Display and Enforcement:**
-
-- **Healthy Zone (0-80%):** Safe to add items
-- **Caution Zone (80-99%):** Warning shown, user can proceed at own risk
-- **Critical Zone (>= 100%):** Additions blocked, must remove items first
-- **Safe Buffer:** 80% limit shown as recommendation, 100% as hard limit
-
-### 3.2.4 Sprint Goal Alignment Analysis (NLP Logic)
-
-The system uses Natural Language Processing to assess requirement alignment with sprint objectives:
-
-**Alignment Assessment Process:**
-
-```
-1. Text Preprocessing:
-   └─ Tokenization, lowercasing, stop-word removal
-
-2. Feature Extraction:
-   ├─ TF-IDF vectorization of sprint goal and requirement
-   └─ Historical keyword mapping
-
-3. Similarity Calculation:
-   ├─ Cosine similarity (primary): sim ≥ 0.7 = aligned
-   ├─ Jaccard index (fallback): for short texts
-   └─ Keyword overlap analysis
-
-4. Alignment Classification:
-   ├─ score ≥ 0.75: STRONGLY_ALIGNED (low risk)
-   ├─ 0.50-0.75: PARTIALLY_ALIGNED (moderate risk)
-   ├─ 0.25-0.50: WEAKLY_ALIGNED (high risk)
-   ├─ < 0.25: UNALIGNED (distraction)
-   └─ Negative keywords: CRITICAL_BLOCKER (cannot add)
-```
-
-**Alignment Scoring:**
-
-- Layer 1: Critical Blocker Detection (incompatible keywords)
-- Layer 2: TF-IDF Cosine Similarity (0-1 scale)
-- Layer 3: Metadata Traceability (historical alignment patterns)
-- Layer 4: Context Validation (sprint stage, team capacity)
-
-### 3.2.5 Rule-Based Decision Engine and Human-in-Loop Workflow
-
-The decision engine synthesizes all four ML predictions and alignment analysis into a single recommendation:
+The decision engine applies a sophisticated rule-based system that generates one of four recommendations based on a careful analysis of multiple factors:
 
 **Decision Logic:**
 
-```
-IF alignment_state == CRITICAL_BLOCKER:
-    RECOMMEND: DEFER (with high confidence)
+The decision process evaluates the following factors in sequence:
+- Alignment state with sprint goal (highest priority)
+- Current sprint capacity utilization percentage
+- Requirement story points and priority
+- Risk levels (schedule, quality, productivity)
+- Team historical performance and velocity trends
 
-ELSE IF effort_hours > remaining_sprint_hours:
-    IF alignment == STRONGLY_ALIGNED:
-        RECOMMEND: SPLIT (split into parts)
-    ELSE:
-        RECOMMEND: DEFER (too much work)
+The core decision rules operate as follows: If alignment is CRITICAL_BLOCKER, recommend DEFER (move to backlog) unless requirement has maximum priority, in which case recommend SPLIT to minimize disruption. If alignment is STRONGLY_ALIGNED and current capacity utilization is below 80%, recommend ADD to current sprint. If alignment is STRONGLY_ALIGNED but capacity is 80-100%, recommend SPLIT to safely add part while protecting sprint commitments. If alignment is PARTIALLY_ALIGNED or WEAKLY_ALIGNED and capacity is available, recommend SWAP to reduce disruption. If alignment is UNALIGNED, always recommend DEFER regardless of capacity.
 
-ELSE IF schedule_risk > 60%:
-    IF priority == HIGH AND alignment == STRONGLY_ALIGNED:
-        RECOMMEND: ADD (with caution)
-    ELSE:
-        RECOMMEND: DEFER (schedule too tight)
+Additional refinements consider risk levels: if schedule risk is HIGH and capacity is above 80%, escalate to SPLIT or SWAP even if alignment would normally suggest ADD. If quality risk is HIGH, prefer SPLIT (partial commitment) or DEFER over full ADD. If productivity impact is projected to exceed 30%, apply SPLIT to distribute the work across sprints.
 
-ELSE IF quality_risk > 60%:
-    IF effort_low AND alignment_high:
-        RECOMMEND: ADD (manage quality separately)
-    ELSE:
-        RECOMMEND: DEFER (quality concerns)
-
-ELSE IF productivity_impact > 25%:
-    IF alignment == STRONGLY_ALIGNED:
-        RECOMMEND: SPLIT (reduce context switch)
-    ELSE:
-        RECOMMEND: DEFER
-
-ELSE:
-    RECOMMEND: ADD (low risk across all dimensions)
-
-# Final Check:
-IF remaining_capacity < required_effort:
-    FINAL_DECISION: CANNOT_ADD (capacity exceeded)
-ELSE:
-    FINAL_DECISION: USER_CHOICE (system recommendation ready)
-```
-
-**Decision Options Available to Manager:**
-
-1. **ADD** - Add requirement to current active sprint
-   - Updates sprint load immediately
-   - Recalculates capacity consumption
-   - Triggers capacity warning if >= 80%
-
-2. **DEFER** - Move to backlog for future sprint
-   - Maintains sprint focus
-   - Prevents scope creep
-   - Allows sprint goal completion
-
-3. **SPLIT** - Divide requirement between sprint and backlog
-   - High-priority portion added to sprint
-   - Lower-priority portion deferred
-   - Auto-calculates split ratio (70% sprint / 30% backlog)
-
-4. **SWAP** - Replace similar-sized item in sprint with new requirement
-   - Maintains sprint capacity
-   - Allows priority adjustment
-   - Moves displaced item to backlog
-
-**Human-in-Loop Logic:**
-
-The system does NOT make the final decision. Instead, it:
-1. Displays all four impact metrics with risk levels
-2. Shows sprint goal alignment state
-3. Presents system recommendation with explanation
-4. Allows manager to override and choose alternative
-5. Tracks the chosen action in recommendation log
+Human-in-Loop Integration: The system presents the recommendation with a full explanation of which rules fired and why, but explicitly allows users to override the recommendation. If a user chooses a different action, the system logs this override with a rationale field (if provided) for future analysis. The selected action is executed immediately: ADD creates the item in the current sprint with full commitment, DEFER creates it in the backlog, SPLIT creates two items (primary in current sprint with ~70% complexity, secondary in backlog), and SWAP exchanges the requirement with an existing low-priority item.
 
 ### 3.2.6 Story Point Estimation with Fibonacci Sequence
 
-The system enforces the Fibonacci sequence (1, 2, 3, 5, 8, 13, 21) for story points:
+Story point estimation is constrained to the Fibonacci sequence (1, 2, 3, 5, 8, 13, 21) to maintain consistency with industry-standard Agile practices. The system provides an AI-powered suggestion engine that analyzes the requirement title and description using TF-IDF similarity to find historical requirements with similar characteristics. It extracts features from the requirement text including word count, technical keywords, complexity indicators, and dependency mentions.
 
-**SP Suggestion Algorithm:**
+The suggestion engine queries the backlog database to find completed items with maximum cosine similarity to the current requirement. It then recommends the median story points of the top 3 most similar historical items, adjusted slightly for any identified differences in complexity. For new projects without historical data, the engine uses complexity heuristics: short requirements (<50 words) default to 2-3 points, medium requirements (50-200 words) suggest 5-8 points, and complex requirements (>200 words with multiple technical terms) suggest 13+ points.
 
-```
-INPUT: Requirement title, description
-OUTPUT: Suggested story points from Fibonacci sequence
+All story point inputs are validated against the Fibonacci sequence. If a user enters an invalid number, the system recommends the nearest Fibonacci number with an explanation. This validation prevents the accumulation of irregular point values that could skew velocity calculations.
 
-1. Extract Features:
-   ├─ Text length and complexity
-   ├─ Find historically similar requirements
-   └─ Analyze technical complexity keywords
+### 3.2.7 Impact Action History Tracking
 
-2. Find Similar Items:
-   ├─ TF-IDF similarity to historical backlog
-   ├─ Return top 3 matches with SPs
-   └─ Average their SPs with confidence weighting
+All impact analyses and user decisions are logged in comprehensive detail for historical tracking and retrospective analysis. Each log entry captures the requirement title, description, recommended action, user's chosen action (which may differ from recommendation), timestamp, alignment state classification, all impact metrics (effort, schedule risk, quality risk, productivity), and optional user notes explaining the decision rationale.
 
-3. Heuristic Adjustment:
-   ├─ If no historical match, use complexity heuristic
-   ├─ Short/simple requirement: 1-3 SP
-   ├─ Medium complexity: 5-8 SP
-   └─ High complexity: 13-21 SP
-
-4. Validate Against Fibonacci:
-   ├─ Find nearest valid Fibonacci number
-   ├─ Return suggested SP with confidence score
-   └─ Allow manual override by user
-
-5. User Input Validation:
-   ├─ If user provides non-Fibonacci number
-   ├─ Suggest nearest valid Fibonacci number
-   └─ Block submission if outside 1-21 range
-```
-
-**Confidence Levels:**
-
-- High (75-100%): Strong historical match found
-- Medium (50-75%): Partial match or heuristic-based
-- Low (< 50%): Insufficient data, recommend manual estimation
-
-### 3.2.7 Impact Action History Tracking and Analytics
-
-The system maintains comprehensive logs of all impact analyses and decisions:
-
-**Recorded Data:**
-
-```
-For Each Requirement Analysis:
-├─ Requirement title and description
-├─ Sprint goal and context
-├─ System recommendation (ADD/DEFER/SPLIT/SWAP)
-├─ User's chosen action
-├─ All four impact metrics (effort, schedule, quality, productivity)
-├─ Sprint goal alignment state
-├─ Alignment score and reasoning
-├─ Timestamp of analysis
-├─ Timestamp of action taken
-└─ Optional user notes
-
-Analytics Aggregation:
-├─ Total requirements analyzed per sprint
-├─ Distribution of recommendations vs. actions taken
-├─ Action effectiveness tracking (did requirement work out?)
-├─ Velocity impact correlation
-└─ Alignment accuracy metrics
-```
-
-**History Query Endpoints:**
-
-- Sprint Impact History: All analyses for single sprint
-- Space Impact History: Trend analysis across all sprints
-- Action Distribution: Breakdown of ADD/DEFER/SPLIT/SWAP usage
-- Alignment Accuracy: How often alignment predictions matched reality
+The history system supports two query interfaces: sprint-level history shows all analyses within a single active sprint with summary statistics on how many recommendations were ADD vs. DEFER vs. SPLIT vs. SWAP, and space-level history aggregates across all sprints within a project to identify trends. Teams can review this history to understand which types of changes caused problems, whether recommendations were accurate, and how decisions affected sprint outcomes. This data feeds into retrospectives and informs future capacity planning.
 
 ### 3.2.8 Error Handling and Model Fallback Mechanisms
 
-The system implements graceful degradation when ML models fail:
+Robustness is built into every component through comprehensive error handling and graceful degradation. At the system startup phase, all ML models are loaded with try-catch blocks. If a model fails to load (e.g., file corrupted, incompatible version, insufficient memory), the system logs a warning and marks that model as unavailable. The intelligence layer continues operating with heuristic-based estimates for unavailable models rather than failing the entire system.
 
-**Error Handling Strategy:**
+At runtime, each prediction module includes error handling. If a model call times out, throws an exception, or produces invalid output (e.g., probability outside 0-100), the system catches the error, logs it with timestamp and error details, and executes the corresponding heuristic fallback. The response returned to the frontend includes a confidence flag indicating whether ML or heuristic was used.
 
-```
-FOR EACH ML PREDICTION:
-  TRY:
-    result = ml_model.predict(features)
-    confidence = model_confidence_score
-  CATCH Exception:
-    result = heuristic_estimate(features)
-    confidence = LOW (flagged as using fallback)
-    error_flag = ML_FAILED_USING_HEURISTIC
+For the NLP analysis layer, if TF-IDF similarity computation fails, the system falls back to simpler string matching algorithms like Jaccard similarity or even basic keyword overlap counting. For the decision engine, if any input metric is unavailable, default values are used (e.g., assume moderate risk if risk assessment fails).
 
-FINAL OUTPUT:
-├─ predictions (from ML or heuristic)
-├─ model_confidence: HIGH or LOW
-├─ using_heuristic: boolean flag
-└─ individual error flags per metric
-```
-
-**Heuristic Fallbacks:**
-
-- **Effort:** 5 hours per story point
-- **Schedule Risk:** Based on effort-per-day analysis
-- **Quality Risk:** Based on requirement complexity and keywords
-- **Productivity:** Based on sprint stage and requirement size
-
-**Confidence Reporting:**
-
-Users see indicators when fallback heuristics are used, ensuring transparency about model reliability.
-
----
+All error information is logged for monitoring and debugging. System administrators can review error logs to identify patterns such as models consistently failing on certain input types or specific edge cases that need handling. This supports continuous improvement of model robustness.
 
 ## 3.3 Development Tools and Technologies
 
-### 3.3.1 Backend Technologies
+**Backend Development:** The backend is implemented in Python using FastAPI, a modern asynchronous web framework optimized for fast API development with automatic documentation generation. The ML models use Scikit-Learn for linear regression and gradient boosting (XGBoost), TensorFlow/Keras for deep learning models (TabNet, LSTM), and NumPy/Pandas for data manipulation. NLP tasks use Scikit-Learn's TfidfVectorizer for text vectorization and SciPy for similarity computations. The MongoDB Python driver handles all database operations asynchronously.
 
-**Python**
-- Primary language for ML model development and backend logic
-- Chosen for versatility in algorithmic programming and data manipulation
+**Frontend Development:** The frontend is built with React, a JavaScript library for building interactive user interfaces with component-based architecture. Tailwind CSS handles styling with utility-first approach. The frontend communicates with the backend through RESTful HTTP endpoints, sending JSON payloads and receiving structured responses. State management uses React hooks and SWR (Stale-While-Revalidate) for client-side data fetching and caching.
 
-**FastAPI Framework**
-- Modern Python web framework for building REST APIs
-- Async support for handling concurrent requests
-- Automatic request validation and documentation
+**Data Storage:** MongoDB serves as the primary database, chosen for its flexible schema that accommodates evolving data structures as new features are added. Collections include spaces (projects), sprints, backlog_items, recommendation_logs, and team_metrics. Mongoose ODM is used for schema validation and relationship management.
 
-**Machine Learning Libraries:**
-
-- **Scikit-Learn**: Linear regression for effort prediction, feature extraction (TF-IDF)
-- **XGBoost**: Gradient boosting for schedule risk classification
-- **TabNet**: Deep learning for quality risk on tabular data
-- **TensorFlow/Keras**: Neural network implementation for LSTM productivity model
-- **NumPy/Pandas**: Data manipulation and numerical computing
-
-**Natural Language Processing:**
-- **TF-IDF Vectorizer**: Text feature extraction and similarity matching
-- **Jaccard Index**: Alternative similarity metric for short texts
-
-**Database:**
-- **MongoDB**: NoSQL database for flexible schema storage of sprints, backlog items, and logs
-- **PyMongo**: Python driver for MongoDB operations
-
-### 3.3.2 Frontend Technologies
-
-**React/JavaScript**
-- Component-based UI development
-- Real-time updates using SWR (stale-while-revalidate) caching
-
-**Tailwind CSS**
-- Utility-first CSS framework for responsive design
-- Consistent theming and accessibility
-
-**APIs:**
-- Fetch API for REST communication with backend
-- Async/await for handling asynchronous operations
-
-### 3.3.3 Development Environment
-
-**VS Code**
-- Primary IDE for development
-- Integrated debugging and Git support
-- Extensions for Python, JavaScript, and MongoDB
-
-**Python Virtual Environment**
-- Isolated Python environment for dependency management
-- pip/poetry for package management
-
-**Git/GitHub**
-- Version control and collaboration
-- Branch-based development workflow
-
-### 3.3.4 Model Training and Validation
-
-**Data Splitting:**
-- 70% training, 20% validation, 10% test set
-- Stratified splits for balanced class representation
-
-**Validation Metrics:**
-- Regression models: MAE (Mean Absolute Error), RMSE (Root Mean Squared Error)
-- Classification models: Precision, Recall, F1-Score, ROC-AUC
-- Ensemble: Cross-validation scores
-
-**Hyperparameter Tuning:**
-- Grid search for algorithm parameter optimization
-- Validation on held-out dataset to prevent overfitting
-
----
+**Development Environment:** The project uses Docker for containerization ensuring consistent environments across development, testing, and production. Git version control tracks all changes. Python virtual environments isolate dependencies. The development server runs locally with hot-reload for rapid iteration during development.
 
 ## 3.4 Data Management and Preprocessing
 
-### 3.4.1 Data Sources
+**Data Sources:** The system draws data from several sources including historical sprint records (completed sprints with their metrics), backlog item data (all items including completed, in-progress, and planned), team configuration (assignee counts per sprint), and requirement submissions (new requirements being analyzed). All data is stored in MongoDB with timestamps for audit trails.
 
-**Historical Sprint Data:**
-- Completed sprints from project management system
-- Actual effort vs. estimated effort
-- Velocity patterns over time
+**Text Preprocessing for NLP:** Requirement titles and descriptions undergo standardization before TF-IDF vectorization. This includes converting text to lowercase, removing special characters and extra whitespace, tokenizing into individual words, and removing common stop words (the, a, is, etc.). Stemming is applied to reduce words to root forms (e.g., "running" becomes "run"). This preprocessing ensures that similar requirements with different phrasing produce similar vectors.
 
-**Backlog Item Data:**
-- Requirement titles and descriptions
-- Assigned story points
-- Actual implementation hours
-- Defect count post-implementation
+**Feature Normalization:** Numerical features including story points, sprint duration, days remaining, and team size are normalized using min-max scaling to the range [0, 1] before feeding into ML models. This prevents features with large numerical ranges from dominating model predictions. Historical metrics like velocity are normalized relative to team baselines to account for different team sizes and project contexts.
 
-**Sprint Context:**
-- Sprint duration and dates
-- Team composition and assignments
-- Sprint goals and objectives
-
-### 3.4.2 Data Preprocessing
-
-**Text Preprocessing:**
-1. Tokenization of requirement text
-2. Lowercasing and special character removal
-3. Stop-word removal
-4. Stemming/lemmatization where applicable
-
-**Feature Normalization:**
-- Effort metrics scaled to 0-1 range
-- Temporal features normalized by sprint duration
-- Team size features scaled relative to maximum
-
-**Class Weighting:**
-- Applied to address imbalanced datasets
-- Minority class (failed sprints) weighted higher
-- Ensures models focus on high-risk scenarios
-
-### 3.4.3 Handling Missing Data
-
-**Strategy:**
-- Mean imputation for numerical features
-- Mode imputation for categorical features
-- Removal of rows with > 30% missing values
-- Forward-fill for temporal data
-
----
+**Missing Data Handling:** When historical data is incomplete (e.g., early sprints lacking some metrics), the system applies mean imputation for numerical features and forward-fill for time-series metrics. For categorical data like alignment state, missing values are treated as "UNKNOWN". If too much data is missing for a particular analysis, that analysis is skipped with user notification rather than using unreliable imputed values.
 
 ## 3.5 System Validation Approach
 
-### 3.5.1 Model Validation
+**Model Validation Strategy:** Each ML model is validated using k-fold cross-validation on historical sprint data. For classification models (schedule risk, quality risk), validation metrics include precision, recall, F1-score, and ROC-AUC. For regression models (effort prediction), validation uses mean absolute error (MAE) and R-squared. Models are evaluated on held-out test sets representing different time periods and project contexts to ensure generalization.
 
-**Cross-Validation:**
-- 5-fold cross-validation for model stability assessment
-- Ensures models generalize beyond training data
+**Integration Testing:** The system undergoes integration testing to verify that all components work correctly together. Test scenarios include: adding a requirement to a healthy sprint (low capacity usage), adding to a nearly-full sprint (high capacity usage), adding requirements misaligned with sprint goal, handling invalid model predictions, and fallback execution when models are unavailable. Each test verifies that both the correct recommendation is generated and that user overrides are handled properly.
 
-**Backtesting:**
-- Test models on historical sprint data
-- Measure prediction accuracy for completed requirements
-- Compare recommendations to actual outcomes
+**Performance Metrics:** The decision engine accuracy is validated by comparing its recommendations to what experienced scrum masters would recommend for the same scenarios. Effort prediction accuracy is measured against actual hours spent after sprint completion. Alignment analysis is validated through manual review by domain experts. Schedule risk predictions are verified post-sprint by checking whether flagged items actually caused delays. These validation results feed back into model retraining and rule refinement.
 
-### 3.5.2 System Integration Testing
-
-**Scenario-Based Testing:**
-- Test each decision path (ADD/DEFER/SPLIT/SWAP)
-- Verify capacity enforcement at thresholds (80%, 100%)
-- Validate sprint goal alignment for various requirement types
-
-**User Acceptance Testing:**
-- Involve project managers in testing workflows
-- Validate that recommendations align with domain expertise
-- Ensure UI is intuitive and decision-making process clear
-
-### 3.5.3 Performance Metrics
-
-**Accuracy Metrics:**
-- Alignment prediction accuracy vs. manual assessment
-- Decision recommendation accuracy vs. expert judgment
-- Effort estimation error (MAPE: Mean Absolute Percentage Error)
-
-**System Performance:**
-- API response time < 2 seconds for impact analysis
-- Database query efficiency for large sprint histories
-- Frontend rendering performance with large datasets
-
----
-
-This methodology section covers the complete approach, architecture, and implementation details of the Sprint Impact Analyzer component, grounded in machine learning principles, data engineering best practices, and human-centered decision-making design.
+**User Acceptance Testing:** Before deployment, the system is tested with actual Agile teams to ensure that the UI is intuitive, recommendations are understandable, and the system integrates smoothly with existing workflows. Feedback from these sessions informs final refinements to visualization, explanation clarity, and decision presentation.
