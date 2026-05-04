@@ -9,18 +9,32 @@ import os
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path="/vercel/share/.env.project")
 
 # MongoDB Connection
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_URI = os.getenv("MONGODB_URI")
+if not MONGODB_URI:
+    raise ValueError("MONGODB_URI not found in environment variables. Please check your .env.project file.")
+
 client = MongoClient(MONGODB_URI)
-db = client["sprint_impact_db"]
+db = client["agile-tool"]
 
 def clear_existing_data():
-    """Clear existing data for fresh seed"""
-    db.spaces.delete_many({})
-    db.sprints.delete_many({})
-    db.backlog_items.delete_many({})
-    print("✓ Cleared existing data")
+    """Clear existing data for fresh seed - removes all collections"""
+    try:
+        db.spaces.delete_many({})
+        db.sprints.delete_many({})
+        db.backlog_items.delete_many({})
+        print("✓ Cleared existing data from all collections")
+        print(f"  - Deleted all spaces")
+        print(f"  - Deleted all sprints")
+        print(f"  - Deleted all backlog items")
+    except Exception as e:
+        print(f"✗ Error clearing data: {e}")
+        raise
 
 def seed_space():
     """Create the project space"""
