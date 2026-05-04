@@ -2,6 +2,7 @@
 Complex Dataset: Cloud-Native Microservices Platform Migration & Optimization
 Project: Distributed Async Task Processing System with Real-time Monitoring
 6 Sprints (5 completed + 1 active) with realistic backlog items, varied completion rates
+Updated: Today is May 4, 2026 - All dates aligned to current timeline
 """
 
 import os
@@ -43,10 +44,10 @@ def seed_sprints(space_id):
         "_id": "sprint_001",
         "space_id": space_id,
         "sprint_number": 1,
-        "name": "Foundation & Docker Containerization",
+        "name": "Sprint 1 - Foundation & Docker Containerization",
         "goal": "Containerize core monolith, establish CI/CD pipeline, set up Docker registry and implement health check endpoints for service discovery in Kubernetes cluster.",
-        "start_date": datetime(2025, 11, 3),
-        "end_date": datetime(2025, 11, 17),
+        "start_date": datetime(2026, 3, 17),
+        "end_date": datetime(2026, 3, 31),
         "sprint_velocity": 48,
         "items_committed": 9,
         "items_completed": 8,
@@ -60,10 +61,10 @@ def seed_sprints(space_id):
         "_id": "sprint_002",
         "space_id": space_id,
         "sprint_number": 2,
-        "name": "Istio Service Mesh & Distributed Tracing",
+        "name": "Sprint 2 - Istio Service Mesh & Distributed Tracing",
         "goal": "Implement Istio service mesh for inter-service communication, deploy Jaeger for distributed tracing, establish traffic management policies with mTLS encryption for secure service-to-service communication.",
-        "start_date": datetime(2025, 11, 18),
-        "end_date": datetime(2025, 12, 1),
+        "start_date": datetime(2026, 4, 1),
+        "end_date": datetime(2026, 4, 15),
         "sprint_velocity": 52,
         "items_committed": 8,
         "items_completed": 8,
@@ -77,10 +78,10 @@ def seed_sprints(space_id):
         "_id": "sprint_003",
         "space_id": space_id,
         "sprint_number": 3,
-        "name": "PostgreSQL Sharding & Apache Kafka Integration",
+        "name": "Sprint 3 - PostgreSQL Sharding & Apache Kafka Integration",
         "goal": "Implement horizontal database sharding strategy using hash partitioning, migrate event sourcing to Apache Kafka with topic-based routing, establish exactly-once semantics for critical transactions.",
-        "start_date": datetime(2025, 12, 2),
-        "end_date": datetime(2025, 12, 15),
+        "start_date": datetime(2026, 4, 16),
+        "end_date": datetime(2026, 4, 30),
         "sprint_velocity": 50,
         "items_committed": 10,
         "items_completed": 9,
@@ -94,10 +95,10 @@ def seed_sprints(space_id):
         "_id": "sprint_004",
         "space_id": space_id,
         "sprint_number": 4,
-        "name": "Kong API Gateway & Advanced Rate Limiting",
+        "name": "Sprint 4 - Kong API Gateway & Advanced Rate Limiting",
         "goal": "Implement Kong API Gateway with JWT authentication, multi-tier rate limiting per API key/user tier, implement circuit breaker patterns and API versioning strategy for backward compatibility.",
-        "start_date": datetime(2025, 12, 16),
-        "end_date": datetime(2025, 12, 29),
+        "start_date": datetime(2026, 5, 1),
+        "end_date": datetime(2026, 5, 8),
         "sprint_velocity": 42,
         "items_committed": 9,
         "items_completed": 7,
@@ -112,10 +113,10 @@ def seed_sprints(space_id):
         "_id": "sprint_005",
         "space_id": space_id,
         "sprint_number": 5,
-        "name": "Prometheus Metrics & Horizontal Pod Autoscaling",
+        "name": "Sprint 5 - Prometheus Metrics & Horizontal Pod Autoscaling",
         "goal": "Instrument all microservices with Prometheus metrics, implement custom HPA policies using CPU/memory/custom metrics, set up Grafana dashboards for real-time cluster monitoring and alerting via PagerDuty.",
-        "start_date": datetime(2025, 12, 30),
-        "end_date": datetime(2026, 1, 12),
+        "start_date": datetime(2026, 4, 9),
+        "end_date": datetime(2026, 4, 23),
         "sprint_velocity": 48,
         "items_committed": 8,
         "items_completed": 8,
@@ -124,15 +125,16 @@ def seed_sprints(space_id):
         "status": "completed",
     }
     
-    # Sprint 6: ACTIVE SPRINT - Cost Optimization & Security Hardening (Middle of sprint - 7 days in, ends in 7 days)
+    # Sprint 6: ACTIVE SPRINT - Cost Optimization & Security Hardening (ACTIVE - Today is May 4, 2026)
+    # Started 7 days ago, ends in 7 days (middle of sprint)
     sprint_6 = {
         "_id": "sprint_006",
         "space_id": space_id,
         "sprint_number": 6,
-        "name": "Cost Optimization & Security Hardening",
+        "name": "Sprint 6 - Cost Optimization & Security Hardening",
         "goal": "Implement Spot instance management and resource optimization algorithms, perform security audit of container images and secrets management, establish network policies and Pod Security Standards for production hardening.",
-        "start_date": datetime(2026, 1, 13),  # 7 days ago
-        "end_date": datetime(2026, 1, 27),   # 7 days from now
+        "start_date": datetime(2026, 4, 27),  # 7 days ago
+        "end_date": datetime(2026, 5, 11),   # 7 days from now
         "sprint_velocity": 46,
         "items_committed": 9,
         "items_completed": 4,
@@ -253,6 +255,7 @@ def main():
     print(f"   Sprints: {len(sprints)} (5 completed, 1 active)")
     print(f"   Backlog Items: {len(items)} total")
     print(f"   Total Story Points: {sum(item.get('sp', 0) for item in items)} SP")
+    print(f"   Active Sprint (Sprint 6): April 27 - May 11, 2026 (Currently mid-sprint)")
     print(f"\n🚀 Dataset ready for sprint impact prediction testing!\n")
 
 if __name__ == "__main__":
